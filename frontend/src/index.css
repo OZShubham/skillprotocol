@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+/* THEME: PROTOCOL VOID
+   A high-precision, industrial interface for technical auditing.
+*/
+
+@theme {
+  /* COLORS */
+  --color-void: #050505;       /* True Black */
+  --color-panel: #0A0A0A;      /* Slightly lighter for cards */
+  --color-surface: #121212;    /* Interactive surfaces */
+  --color-border: #262626;     /* Subtle borders */
+  --color-border-strong: #404040;
+  
+  --color-primary: #F59E0B;    /* Amber-500 (Signal / Warning / Activity) */
+  --color-primary-dim: #78350F;
+  
+  --color-success: #10B981;    /* Emerald-500 (Verified) */
+  --color-error: #EF4444;      /* Red-500 (Failed) */
+  
+  --color-text-main: #EDEDED;
+  --color-text-muted: #A1A1AA;
+  --color-text-dim: #52525B;
+
+  /* FONTS */
+  --font-sans: "Inter", -apple-system, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+
+  /* ANIMATIONS */
+  --animate-scan: scan 2s linear infinite;
+  --animate-blink: blink 1s step-end infinite;
+  
+  @keyframes scan {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100%); }
+  }
+  
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+}
+
+/* BASE STYLES */
+@layer base {
+  body {
+    background-color: var(--color-void);
+    color: var(--color-text-main);
+    font-family: var(--font-sans);
+    /* Subtle CRT Scanline effect overlay */
+    background-image: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    background-size: 100% 2px, 3px 100%;
+    min-height: 100vh;
+  }
+
+  /* Custom Scrollbar for that "Terminal" feel */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-void);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary);
+  }
+}
+
+/* UTILITIES */
+.font-mono-nums {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+.glass-panel {
+  background: rgba(10, 10, 10, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+}

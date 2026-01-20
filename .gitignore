@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+project_files_summary.txt
+content_print.py
+cache
+evaluation_results
+optimization_results

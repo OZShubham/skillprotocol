@@ -1,0 +1,68 @@
+# ============================================================================
+# SkillProtocol Backend Dependencies
+# Python 3.11+
+# ============================================================================
+
+# Core Framework
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-multipart
+
+# Database
+sqlalchemy[asyncio]
+asyncpg            # PostgreSQL async driver
+alembic           # Migrations
+psycopg2-binary      # PostgreSQL sync driver (for alembic)
+
+# Authentication
+python-jose[cryptography]
+passlib[bcrypt]
+python-dotenv
+
+# Async Workers
+celery
+redis
+
+# GitHub Integration
+GitPython
+httpx           # Async HTTP client
+
+# Code Analysis (THE ENGINE)
+radon               # Complexity analysis
+bandit             # Security scanning
+pylint           # Code quality
+
+# LLM Integration
+openai
+anthropic
+langchain
+langchain-openai
+langchain-anthropic
+
+# Observability (THE PRIZE)
+opik           # CRITICAL: Opik integration
+opik-optimizer
+langsmith      # LangChain tracing
+
+# Utilities
+python-slugify
+structlog           # Structured logging
+sentry-sdk[fastapi]  # Error tracking (optional)
+
+# Rate Limiting
+slowapi
+
+# Testing
+pytest
+pytest-asyncio
+pytest-cov
+httpx           # For testing FastAPI
+
+# Development
+black              # Code formatting
+ruff              # Linting
+mypy               # Type checking
+
+matplotlib
