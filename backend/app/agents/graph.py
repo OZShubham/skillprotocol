@@ -2,7 +2,7 @@
 LangGraph Router - FIXED VERSION
 Properly stops flow when validation fails
 """
-
+from opik.integrations.langchain import OpikTracer
 from typing import Literal
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -187,15 +187,28 @@ async def run_analysis(
         job_id=job_id,
         user_github_token=user_github_token
     )
+
+    opik_tracer = OpikTracer(
+        tags=["production", "skill-verification"],
+        metadata={
+            "user_id": user_id,
+            "repo_url": repo_url,
+            "job_id": job_id
+        }
+    )
     
+    # Run workflow
     # Run workflow
     config = {
         "configurable": {
             "thread_id": job_id
-        }
+        },
+        # Inject the tracer here to get the Visual Graph
+        "callbacks": [opik_tracer] 
     }
     
     try:
+        # Pass config with callbacks
         final_state = await analysis_graph.ainvoke(initial_state, config)
     except Exception as e:
         print(f"❌ Workflow execution error: {str(e)}")

@@ -39,6 +39,23 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
     linkElement.click()
   }
 
+  const handleFeedback = async (score) => {
+  try {
+    await fetch(`${API_URL}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_id: result.verification_id, // Ensure this maps to Opik Trace ID
+        score: score,
+        comment: score === 1 ? "User verified accuracy" : "User disputed result"
+      })
+    });
+    alert("Feedback sent! This helps improve our Judge Agent.");
+  } catch (e) {
+    console.error("Feedback failed", e);
+  }
+}
+
   const handleShare = async () => {
     const shareData = {
       title: 'SkillProtocol Certificate',
@@ -183,6 +200,15 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
               </div>
             </div>
 
+            <div className="flex gap-4 justify-center mt-6">
+              <button onClick={() => handleFeedback(1)} className="text-green-400 border border-green-400/30 px-4 py-2 rounded hover:bg-green-400/10">
+                👍 Accurate
+              </button>
+              <button onClick={() => handleFeedback(0)} className="text-red-400 border border-red-400/30 px-4 py-2 rounded hover:bg-red-400/10">
+                👎 Inaccurate
+              </button>
+            </div>
+
             {/* NEW: Language Breakdown Section */}
             {result.scan_metrics?.ncrf?.language_stats && (
               <div className="mt-6">
@@ -206,6 +232,8 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
                 </div>
               </div>
             )}
+
+            
 
             {/* 3. Evidence Badges */}
             <div className="p-6 bg-surface border border-border rounded-xl">

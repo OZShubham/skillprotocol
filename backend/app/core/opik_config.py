@@ -18,9 +18,9 @@ from app.core.config import settings
 MAIN_PROJECT = "skillprotocol"
 
 PROJECTS = {
-    "main": "skillprotocol",
-    "eval": "skillprotocol-evals",
-    "optimizer": "skillprotocol-optimizer"
+    "main": MAIN_PROJECT,
+    "eval": MAIN_PROJECT,
+    "optimizer": MAIN_PROJECT
 }
 
 # ============================================================================
@@ -32,16 +32,18 @@ class OpikManager:
     
     @classmethod
     def get_client(cls, project: str = None) -> Opik:
-        project = project or MAIN_PROJECT
+        # If no project specified, OR if it's one of the old separate ones, 
+        # force usage of MAIN_PROJECT.
+        target_project = MAIN_PROJECT
         
-        if project not in cls._instances:
-            cls._instances[project] = Opik(
-                project_name=project,
+        if target_project not in cls._instances:
+            cls._instances[target_project] = Opik(
+                project_name=target_project,
                 api_key=settings.OPIK_API_KEY,
                 workspace=settings.OPIK_WORKSPACE
             )
         
-        return cls._instances[project]
+        return cls._instances[target_project]
 
 # ============================================================================
 # DECORATOR WITH CORRECT PROJECT
@@ -59,7 +61,8 @@ def track_agent(
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            target_project = project or MAIN_PROJECT
+            # Ensure we use the main project
+            target_project = MAIN_PROJECT
             OpikManager.get_client(target_project)
             
             # Apply opik.track dynamically
@@ -86,7 +89,7 @@ def log_to_main_project(name: str, input_data: dict, output_data: dict, metadata
     """
     client = OpikManager.get_client(MAIN_PROJECT)
     
-    # FIX: Changed 'log_traces' to 'trace'
+    # Log trace to the unified project
     client.trace(
         name=name,
         input=input_data,
@@ -97,16 +100,15 @@ def log_to_main_project(name: str, input_data: dict, output_data: dict, metadata
 
 def log_evaluation_trace(name: str, input_data: dict, output_data: dict, metrics: dict):
     """
-    Log evaluation traces to eval project
+    Log evaluation traces to the main project (tagged as evaluation)
     """
-    client = OpikManager.get_client(PROJECTS["eval"])
+    client = OpikManager.get_client(MAIN_PROJECT)
     
-    # FIX: Changed 'log_traces' to 'trace'
     client.trace(
         name=name,
         input=input_data,
         output=output_data,
-        tags=["evaluation"],
+        tags=["evaluation"],  # Use tags to distinguish, not project
         metadata={
             **metrics,
             "experiment_type": "evaluation"

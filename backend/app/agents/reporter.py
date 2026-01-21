@@ -242,7 +242,12 @@ async def store_and_report(state: AnalysisState) -> AnalysisState:
 
 def _calculate_final_credits(state: AnalysisState) -> float:
     """
-    Calculate final credits with proper None checks
+    ENHANCED: Calculate final credits with ALL multipliers:
+    - NCrF Base (size/complexity)
+    - SFIA Level (skill level)
+    - Reality Check (CI/CD tests pass)
+    - Quality Patterns (NEW - code quality)
+    - Semantic Review (NEW - LLM understanding)
     """
     
     # Get NCrF base credits
@@ -255,16 +260,8 @@ def _calculate_final_credits(state: AnalysisState) -> float:
     sfia_multiplier = 1.0
     sfia_result = state.get("sfia_result")
     if sfia_result:
-        # NOTE: If judge intervened, this level is already the final verdict
         sfia_level = sfia_result.get("sfia_level", 3)
-        
-        multipliers = {
-            1: 0.5,   # Follow
-            2: 0.8,   # Assist
-            3: 1.0,   # Apply (baseline)
-            4: 1.3,   # Enable
-            5: 1.7    # Ensure
-        }
+        multipliers = {1: 0.5, 2: 0.8, 3: 1.0, 4: 1.3, 5: 1.7}
         sfia_multiplier = multipliers.get(sfia_level, 1.0)
     
     # Get reality check multiplier
@@ -273,17 +270,37 @@ def _calculate_final_credits(state: AnalysisState) -> float:
     if audit_result:
         reality_multiplier = audit_result.get("reality_multiplier", 1.0)
     
-    # Calculate final credits
-    final_credits = ncrf_base * sfia_multiplier * reality_multiplier
+    # NEW: Get quality multiplier
+    quality_multiplier = 1.0
+    if scan_metrics:
+        quality_multiplier = scan_metrics.get("quality_multiplier", 1.0)
     
-    print(f"🧮 [Reporter Agent] Credit calculation:")
+    # NEW: Get semantic multiplier (if enabled)
+    semantic_multiplier = 1.0
+    if scan_metrics:
+        semantic_multiplier = scan_metrics.get("semantic_multiplier", 1.0)
+    
+    # Calculate final credits with ALL multipliers
+    final_credits = (
+        ncrf_base 
+        * sfia_multiplier 
+        * reality_multiplier
+        * quality_multiplier    # <-- NEW
+        * semantic_multiplier   # <-- NEW
+    )
+    
+    print(f"🧮 [Reporter Agent] Enhanced Credit calculation:")
     print(f"   - NCrF Base: {ncrf_base:.2f}")
     print(f"   - SFIA Multiplier: {sfia_multiplier}x")
     print(f"   - Reality Multiplier: {reality_multiplier}x")
+    print(f"   - Quality Multiplier: {quality_multiplier}x 🆕")
+    
+    if semantic_multiplier != 1.0:
+        print(f"   - Semantic Multiplier: {semantic_multiplier}x 🆕")
+    
     print(f"   - Final: {final_credits:.2f}")
     
     return round(final_credits, 2)
-
 
 async def _get_git_stability(state: AnalysisState) -> float:
     """

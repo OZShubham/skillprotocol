@@ -1,3 +1,6 @@
+# ============================================================================
+# FILE: backend/app/core/opik_advanced.py
+# ============================================================================
 """
 Advanced Opik Integration - WITH BAYESIAN VALIDATION TRACKING
 This module shows how SkillProtocol uses Opik to continuously improve quality
@@ -18,6 +21,9 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import json
 
+# --- IMPORT THE MANAGER ---
+from app.core.opik_config import OpikManager, MAIN_PROJECT
+
 
 class OpikQualityDashboard:
     """
@@ -26,8 +32,8 @@ class OpikQualityDashboard:
     """
     
     def __init__(self):
-        # FIX: Use project_name
-        self.client = Opik(project_name="skillprotocol-live-metrics")
+        # FIX: Use the shared client pointing to MAIN_PROJECT
+        self.client = OpikManager.get_client(MAIN_PROJECT)
     
     def log_analysis_quality_metrics(
         self, 
@@ -89,14 +95,14 @@ class OpikQualityDashboard:
             )
         }
         
-        # FIX: Changed 'log_traces' to 'trace' (Correct method name)
+        # FIX: Log to main project, but add a specific TAG
         self.client.trace(
             name=f"Quality Check: {state.get('repo_url', 'Unknown')}",
             input={"repo_url": state.get("repo_url")},
             output=metrics,
             tags=[
+                "dashboard-metrics", # <--- Use TAGS instead of separate projects
                 "quality-monitoring", 
-                "production", 
                 f"sfia-level-{metrics['sfia_level']}",
                 "bayesian-validated" if validation_result else "no-validation"
             ],
@@ -156,8 +162,8 @@ class OpikABTestingFramework:
     """
     
     def __init__(self):
-        # FIX: Use project_name
-        self.client = Opik(project_name="skillprotocol-experiments")
+        # FIX: Use shared client
+        self.client = OpikManager.get_client(MAIN_PROJECT)
     
     def create_experiment(self, name: str, variant_a: str, variant_b: str):
         """
@@ -199,8 +205,8 @@ class OpikGuardrailMonitor:
     """
     
     def __init__(self):
-        # FIX: Use project_name
-        self.client = Opik(project_name="skillprotocol-guardrails")
+        # FIX: Use shared client
+        self.client = OpikManager.get_client(MAIN_PROJECT)
     
     def check_response_safety(self, llm_response: str, context: Dict) -> Dict:
         """
@@ -216,17 +222,16 @@ class OpikGuardrailMonitor:
             "timestamp": datetime.utcnow().isoformat()
         }
         
-        # FIX: Changed 'log_traces' to 'trace'
         self.client.trace(
             name="Safety Check",
             input=context,
             output=safety_checks,
-            tags=["guardrails", "safety", "compliance"]
+            tags=["guardrail-monitor", "safety", "compliance"], # <--- Tag it
+            metadata={"timestamp": datetime.utcnow().isoformat()}
         )
         
         # Flag if issues found
         if safety_checks["has_pii"] or safety_checks["has_bias_language"]:
-            # FIX: Changed 'log_traces' to 'trace'
             self.client.trace(
                 name="⚠️ Safety Alert",
                 input=context,
@@ -265,7 +270,8 @@ class OpikValidationTracker:
     """
     
     def __init__(self):
-        self.client = Opik(project_name="skillprotocol-validation")
+        # FIX: Use shared client
+        self.client = OpikManager.get_client(MAIN_PROJECT)
     
     def log_validation_performance(
         self,
@@ -294,7 +300,8 @@ class OpikValidationTracker:
                 "validation_passed": agreement_score >= 0.5
             },
             tags=[
-                "validation",
+                "validation-tracker", # <--- Tag it
+                "bayesian",
                 f"agreement-{int(agreement_score * 100)}",
                 "llm-bayesian-comparison"
             ],
@@ -307,19 +314,9 @@ class OpikValidationTracker:
     def get_validation_trends(self, days: int = 7) -> Dict[str, Any]:
         """
         Analyze validation trends over time
-        
-        Returns:
-            {
-                "avg_agreement": float,
-                "avg_llm_confidence": float,
-                "avg_bayesian_confidence": float,
-                "disagreement_rate": float
-            }
         """
-        
         # This would query Opik's API to get historical data
         # For now, return placeholder
-        
         return {
             "avg_agreement": 0.85,
             "avg_llm_confidence": 0.88,

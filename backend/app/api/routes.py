@@ -14,6 +14,8 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.graph import run_analysis, get_analysis_status
+from pydantic import BaseModel
+from opik import track, opik_context
 
 
 router = APIRouter()
@@ -22,6 +24,11 @@ router = APIRouter()
 # ============================================================================
 # REQUEST/RESPONSE MODELS
 # ============================================================================
+
+class FeedbackRequest(BaseModel):
+    job_id: str # This maps to the trace/thread ID
+    score: int # 1 for Thumbs Up, 0 for Thumbs Down
+    comment: Optional[str] = None
 
 class AnalyzeRequest(BaseModel):
     """Request body for /analyze endpoint"""
@@ -101,6 +108,7 @@ analysis_jobs = {}
 # ============================================================================
 
 @router.post("/analyze", response_model=AnalyzeResponse)
+@track(name="API: Start Analysis") # <--- 2. Add this decorator
 async def analyze_repository(
     request: AnalyzeRequest,
     background_tasks: BackgroundTasks,
@@ -108,15 +116,15 @@ async def analyze_repository(
 ):
     """
     Start a new repository analysis.
-    
-    FIXED:
-    - Better error handling for validation failures
-    - Proper private repo detection
-    - Clear error messages returned to frontend
+
     """
     
     # Generate unique job ID
     job_id = str(uuid.uuid4())
+    opik_context.update_current_trace(
+        thread_id=job_id, 
+        tags=["api-entrypoint", "hackathon-demo"]
+    )
     
     # Store initial job info
     # Store initial job info
@@ -338,6 +346,39 @@ async def get_user_history(user_id: str, db: AsyncSession = Depends(get_db)):
         })
         
     return history
+
+
+
+
+@router.post("/feedback")
+async def log_feedback(request: FeedbackRequest):
+    """
+    Log human feedback directly into Opik to close the optimization loop.
+    """
+    import opik
+    client = opik.Opik()
+    
+    # We use the job_id as the trace identifier (or thread identifier)
+    # Depending on how you logged it, you might need to search for the trace first
+    # But logging to the *Thread* is often safer for chat/agent flows.
+    
+    # Log feedback to the specific trace (the analysis run)
+    # Assuming you stored the opik_trace_id in your DB (which you do in Repository model)
+    
+    # Fetch the trace ID from your DB using job_id if necessary, 
+    # or if you used job_id as the trace's name/id.
+    
+    client.log_traces_feedback_scores([
+        {
+            "id": request.job_id, # Or the specific opik_trace_id from DB
+            "name": "user_satisfaction",
+            "value": float(request.score),
+            "reason": request.comment,
+            "source": "user_feedback"
+        }
+    ])
+    
+    return {"status": "recorded"}
 
 
 # ============================================================================

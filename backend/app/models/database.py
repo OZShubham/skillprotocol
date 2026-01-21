@@ -76,7 +76,7 @@ class Repository(Base):
     sfia_result = Column(JSON, nullable=True)
     audit_result = Column(JSON, nullable=True)
     validation_metrics = Column(JSON, nullable=True)
-    
+    quality_metrics = Column(JSON, nullable=True)
     # Observability
     opik_trace_id = Column(String, nullable=True)
     errors = Column(JSON, default=list)
