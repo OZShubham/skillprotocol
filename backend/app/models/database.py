@@ -22,13 +22,12 @@ Base = declarative_base()
 
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=False, # Set to False in production to reduce log noise
+    echo=False,
     future=True,
-    # --- STABILITY FIXES ---
-    pool_pre_ping=True,      # Checks if connection is alive before using (Fixes InterfaceError)
-    pool_size=20,            # Increase pool size for frontend polling
-    max_overflow=10,         # Allow temporary spikes
-    pool_recycle=1800        # Recycle connections every 30 mins
+    pool_pre_ping=True,
+    pool_size=20,
+    max_overflow=10,
+    pool_recycle=1800
 )
 
 async_session = async_sessionmaker(
@@ -60,7 +59,7 @@ class Repository(Base):
     
     # Basic info
     repo_url = Column(String, nullable=False, index=True)
-    repo_fingerprint = Column(String, unique=True, index=True) # Used for Commit Hash
+    repo_fingerprint = Column(String, unique=True, index=True)
     owner = Column(String, nullable=False)
     name = Column(String, nullable=False)
     
@@ -76,6 +75,7 @@ class Repository(Base):
     scan_metrics = Column(JSON, nullable=True)
     sfia_result = Column(JSON, nullable=True)
     audit_result = Column(JSON, nullable=True)
+    validation_metrics = Column(JSON, nullable=True)
     
     # Observability
     opik_trace_id = Column(String, nullable=True)
@@ -142,76 +142,82 @@ async def get_db():
 
 
 # ============================================================================
-# IMPORT THE FIXED SAVE FUNCTION
+# FIXED SAVE FUNCTION
 # ============================================================================
 
 async def save_analysis_result(state: dict):
     """
-    Save analysis result to database (FIXED - HANDLES ALL NONE VALUES & DEDUPLICATION)
+    FIXED: Properly handles duplicates by UPDATING instead of INSERT
     """
     
     async with async_session() as session:
         try:
-            # Extract data with safe defaults
+            # Extract data
             repo_url = state.get("repo_url", "Unknown")
             user_id = state.get("user_id", "anonymous")
-            job_id = state.get("job_id", "unknown")
             
             validation = state.get("validation") or {}
             owner = validation.get("owner", "unknown")
             repo_name = validation.get("repo_name", "unknown")
             
             final_credits = state.get("final_credits", 0.0)
-            
             sfia_result = state.get("sfia_result") or {}
             sfia_level = sfia_result.get("sfia_level")
             
-            errors = state.get("errors", [])
-            
-            # --- DEDUPLICATION CHECK ---
-            # 1. Get the Commit Hash (stored in repo_fingerprint in scanner)
+            # Get commit hash
             scan_metrics = state.get("scan_metrics") or {}
             ncrf_data = scan_metrics.get("ncrf") or {}
-            commit_hash = ncrf_data.get("repo_fingerprint", job_id) # Fallback to job_id if no hash
+            commit_hash = ncrf_data.get("repo_fingerprint", state.get("job_id"))
 
-            # 2. Check if we have already awarded credits for THIS specific commit
-            # We look for a repository record with the same fingerprint and > 0 credits
-            prev_run_query = await session.execute(
+            # --- DEDUPLICATION CHECK ---
+            # Check if this EXACT commit has already been rewarded
+            existing = await session.execute(
                 select(Repository)
-                .where(Repository.user_id == user_id)
-                .where(Repository.repo_url == repo_url)
                 .where(Repository.repo_fingerprint == commit_hash)
-                .where(Repository.final_credits > 0)
+                .where(Repository.user_id == user_id)
             )
-            existing_reward = prev_run_query.scalars().first()
+            existing_record = existing.scalars().first()
             
-            # Determine if we should award new credits
-            should_award_credits = False
-            credits_to_record = final_credits
-
-            if final_credits > 0:
-                if existing_reward:
-                    print(f"⚠️ User {user_id} already rewarded for commit {commit_hash[:7]}. Marking as duplicate.")
-                    credits_to_record = 0.0 # Zero out credits for duplicate run
+            if existing_record:
+                print(f"⚠️ Duplicate detected for commit {commit_hash[:7]}. Updating record instead of inserting.")
+                
+                # UPDATE the existing record instead of failing
+                existing_record.validation_result = validation if validation else None
+                existing_record.scan_metrics = state.get("scan_metrics")
+                existing_record.sfia_result = sfia_result if sfia_result else None
+                existing_record.audit_result = state.get("audit_result")
+                existing_record.opik_trace_id = state.get("opik_trace_id")
+                existing_record.errors = state.get("errors", [])
+                existing_record.updated_at = datetime.utcnow()
+                
+                # DON'T change final_credits if already awarded
+                if existing_record.final_credits == 0.0 and final_credits > 0:
+                    print(f"✅ Updating credits: 0 -> {final_credits}")
+                    existing_record.final_credits = final_credits
                 else:
-                    print(f"✅ New version detected ({commit_hash[:7]}). Awarding credits.")
-                    should_award_credits = True
-
-            # Create repository record (We always save the run history)
+                    print(f"⏭️ Credits already awarded ({existing_record.final_credits}), not changing")
+                
+                await session.commit()
+                print(f"✅ Updated existing record")
+                return
+            
+            # No duplicate - create NEW record
+            print(f"✅ New commit {commit_hash[:7]}, creating record")
+            
             repo = Repository(
                 repo_url=repo_url,
-                repo_fingerprint=commit_hash, # Save the actual commit hash
+                repo_fingerprint=commit_hash,
                 owner=owner,
                 name=repo_name,
                 user_id=user_id,
-                final_credits=credits_to_record, # Uses 0.0 if duplicate
+                final_credits=final_credits,
                 sfia_level=sfia_level,
                 validation_result=validation if validation else None,
                 scan_metrics=state.get("scan_metrics"),
                 sfia_result=sfia_result if sfia_result else None,
                 audit_result=state.get("audit_result"),
                 opik_trace_id=state.get("opik_trace_id"),
-                errors=errors
+                errors=state.get("errors", [])
             )
             
             session.add(repo)
@@ -219,8 +225,8 @@ async def save_analysis_result(state: dict):
             
             print(f"✅ Database: Saved repository record ({repo.id})")
             
-            # Create credit ledger entry ONLY if it's a new, valid reward
-            if should_award_credits:
+            # Create ledger entry
+            if final_credits > 0:
                 ledger_entry = CreditLedger(
                     user_id=user_id,
                     repo_id=repo.id,
@@ -236,9 +242,7 @@ async def save_analysis_result(state: dict):
         except Exception as e:
             await session.rollback()
             print(f"❌ Database save failed: {str(e)}")
-            # Don't re-raise, allow the app to continue reporting the error
-            pass 
-
+            # Don't re-raise - allow analysis to complete
 
 async def get_user_total_credits(user_id: str) -> float:
     """Get total credits for a user"""

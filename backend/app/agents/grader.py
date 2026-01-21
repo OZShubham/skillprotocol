@@ -1,6 +1,7 @@
 """
 Grader Agent
-Uses LLM (Groq) to assign SFIA level based on scan metrics and markers
+Uses LLM (Groq) to assign SFIA level based on scan metrics and markers.
+Now includes 'Statistical Anchoring' to reduce hallucinations.
 """
 
 import json
@@ -15,6 +16,9 @@ from app.services.scoring.engine import ScoringEngine
 from app.core.opik_config import track_agent
 from app.core.opik_advanced import OpikGuardrailMonitor
 
+# --- NEW IMPORT ---
+from app.services.validation.bayesian_validator import get_validator
+
 # Decorator
 @track_agent(
     name="Grader Agent",
@@ -26,15 +30,10 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
     Agent 3: Grader
     
     Responsibilities:
-    1. Take scan metrics from Scanner Agent
-    2. Build SFIA rubric prompt with evidence
-    3. Call Groq LLM to assign SFIA level
-    4. Parse and validate LLM response
-    5. Check confidence threshold
-    6. Retry if needed
-    
-    Returns:
-        Updated state with sfia_result
+    1. Calculate Bayesian Prior (Statistical Anchor)
+    2. Build SFIA prompt (Anchored with stats)
+    3. Call Groq LLM
+    4. Save BOTH results for the Judge
     """
     
     # Update progress
@@ -51,20 +50,41 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         return state
     
     try:
-        # ====================================================================
-        # STEP 1: Build the SFIA Rubric Prompt
-        # ====================================================================
         engine = ScoringEngine()
         ncrf_data = state["scan_metrics"]["ncrf"]
         markers = state["scan_metrics"]["markers"]
         
-        # NOTE: Manual opik.track context manager removed to prevent crash
-        prompt = engine.get_sfia_rubric_prompt(ncrf_data, markers)
+        # ====================================================================
+        # STEP 1: CALCULATE STATISTICAL ANCHOR (PRIOR)
+        # ====================================================================
+        print(f"🧮 [Grader Agent] Calculating Bayesian prior...")
+        validator = get_validator()
         
-        print(f"📝 [Grader Agent] Built SFIA rubric prompt ({len(prompt)} chars)")
+        # Get purely statistical suggestion based on metrics
+        # NOTE: Ensure you added 'get_statistical_suggestion' to bayesian_validator.py
+        statistical_hint = validator.get_statistical_suggestion(state["scan_metrics"])
+        
+        print(f"   ↳ Math suggests Level {statistical_hint['suggested_level']} (Confidence: {statistical_hint['confidence']:.1%})")
+
+        # IMPORTANT: Save this to state so the Judge Agent can see it later!
+        state["validation_result"] = {
+             "bayesian_best_estimate": statistical_hint['suggested_level'],
+             "confidence": statistical_hint['confidence'],
+             "expected_range": statistical_hint['plausible_range'],
+             "reasoning": f"Bayesian model suggests Level {statistical_hint['suggested_level']} based on metrics."
+        }
+
+        # ====================================================================
+        # STEP 2: Build the SFIA Rubric Prompt (With Anchor)
+        # ====================================================================
+        # We pass the hint to the engine to create the "Anchored" prompt
+        # NOTE: Ensure 'get_sfia_rubric_prompt' in engine.py accepts this arg
+        prompt = engine.get_sfia_rubric_prompt(ncrf_data, markers, statistical_hint)
+        
+        print(f"📝 [Grader Agent] Built Anchored Prompt ({len(prompt)} chars)")
         
         # ====================================================================
-        # STEP 2: Initialize Groq Client
+        # STEP 3: Initialize Groq Client
         # ====================================================================
         client = AsyncOpenAI(
             api_key=settings.GROQ_API_KEY,
@@ -79,10 +99,10 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         if retry_count > 0:
             print(f"🔄 [Grader Agent] Retry attempt #{retry_count}")
         
-        print(f"🤖 [Grader Agent] Calling Groq {settings.LLM_MODEL}...")
+        print(f"🤖 [Grader Agent] Asking LLM to review evidence against statistical prior...")
         
         # ====================================================================
-        # STEP 3: Call Groq LLM
+        # STEP 4: Call Groq LLM
         # ====================================================================
         try:
             # NOTE: Wrapped in main trace via @track_agent decorator
@@ -91,7 +111,7 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a senior technical auditor specializing in SFIA (Skills Framework for the Information Age) assessments. You provide fair, evidence-based evaluations. Always respond with valid JSON only."
+                        "content": "You are a senior technical auditor specializing in SFIA assessments. You provide fair, evidence-based evaluations. Use the provided statistical prior as a baseline."
                     },
                     {
                         "role": "user",
@@ -109,7 +129,7 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
             return state
         
         # ====================================================================
-        # STEP 4: Extract and Validate Response
+        # STEP 5: Extract and Validate Response
         # ====================================================================
         llm_response = response.choices[0].message.content
         
@@ -122,7 +142,7 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         print(f"✅ [Grader Agent] Received Groq response ({len(llm_response)} chars)")
 
         # ====================================================================
-        # STEP 4.5: SAFETY GUARDRAILS (Now Working with trace())
+        # STEP 5.5: SAFETY GUARDRAILS
         # ====================================================================
         try:
             guardrails = OpikGuardrailMonitor()
@@ -135,21 +155,17 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
                 }
             )
             
-            # If structure is invalid, log warning but continue
             if not safety_result["contains_required_fields"]:
                 print(f"⚠️  [Grader Agent] LLM response missing required fields")
-                print(f"   Safety checks: {safety_result}")
             
-            # If PII or bias detected, log alert
             if safety_result["has_pii"] or safety_result["has_bias_language"]:
                 print(f"🚨 [Grader Agent] SAFETY ALERT: {safety_result}")
                 
         except Exception as e:
             print(f"⚠️  [Grader Agent] Safety check failed: {str(e)}")
-            # Don't fail analysis if safety check fails
         
         # ====================================================================
-        # STEP 5: Parse JSON
+        # STEP 6: Parse JSON
         # ====================================================================
         try:
             sfia_data = json.loads(llm_response)
@@ -160,7 +176,6 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
             state["errors"].append(error_msg)
             return state
         
-        # Check if sfia_data is a dict
         if not isinstance(sfia_data, dict):
             error_msg = f"Groq response is not a JSON object: {type(sfia_data)}"
             print(f"❌ [Grader Agent] {error_msg}")
@@ -168,13 +183,11 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
             return state
         
         # ====================================================================
-        # STEP 6: Validate Required Fields
+        # STEP 7: Validate Required Fields
         # ====================================================================
         if "sfia_level" not in sfia_data:
             error_msg = "Groq response missing 'sfia_level' field"
             print(f"❌ [Grader Agent] {error_msg}")
-            print(f"🔍 Available keys: {list(sfia_data.keys())}")
-            print(f"🔍 Full response: {json.dumps(sfia_data, indent=2)}")
             state["errors"].append(error_msg)
             return state
         
@@ -184,7 +197,7 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         try:
             sfia_level = max(1, min(5, int(raw_level)))
         except (TypeError, ValueError) as e:
-            error_msg = f"Invalid SFIA level format: {raw_level} ({type(raw_level).__name__})"
+            error_msg = f"Invalid SFIA level format: {raw_level}"
             print(f"❌ [Grader Agent] {error_msg}")
             state["errors"].append(error_msg)
             return state
@@ -200,39 +213,31 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         level_name = level_names.get(sfia_level, "Unknown")
         
         # ====================================================================
-        # STEP 7: Calculate Confidence Score
+        # STEP 8: Calculate Confidence Score
         # ====================================================================
         confidence = sfia_data.get("confidence", 0.85)
-        
-        # Validate confidence is a number
         try:
             confidence = float(confidence)
-            confidence = max(0.0, min(1.0, confidence))  # Clamp to 0-1
+            confidence = max(0.0, min(1.0, confidence))
         except (TypeError, ValueError):
-            print(f"⚠️  [Grader Agent] Invalid confidence value: {confidence}, using 0.85")
             confidence = 0.85
         
-        # Get evidence list
         evidence_list = sfia_data.get("evidence", [])
         if not isinstance(evidence_list, list):
             evidence_list = []
         
-        # Lower confidence if evidence is weak
         if len(evidence_list) < 2:
             confidence *= 0.8
         
         print(f"📊 [Grader Agent] SFIA Assessment:")
         print(f"   - Level: {sfia_level} ({level_name})")
         print(f"   - Confidence: {confidence:.2%}")
-        print(f"   - Evidence count: {len(evidence_list)}")
         
         # ====================================================================
-        # STEP 8: Build Result
+        # STEP 9: Build Result
         # ====================================================================
         reasoning = sfia_data.get("reasoning", "No reasoning provided")
         missing_for_next = sfia_data.get("missing_for_next_level", [])
-        
-        # Ensure missing_for_next is a list
         if not isinstance(missing_for_next, list):
             missing_for_next = []
         
@@ -251,7 +256,6 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         
         print(f"✅ [Grader Agent] Assessment complete")
         
-        # Log reasoning for transparency
         if reasoning and reasoning != "No reasoning provided":
             print(f"💭 Reasoning: {reasoning[:100]}...")
         
@@ -260,9 +264,6 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
     except Exception as e:
         error_msg = f"Grader agent error: {str(e)}"
         print(f"❌ [Grader Agent] {error_msg}")
-        
-        # Print full traceback for debugging
         print(f"🔍 Traceback: {traceback.format_exc()}")
-        
         state["errors"].append(error_msg)
         return state

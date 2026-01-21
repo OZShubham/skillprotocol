@@ -6,6 +6,7 @@ Defines the shared state that flows through all agents
 from typing import TypedDict, Literal, List, Dict, Any, Optional
 from typing_extensions import Annotated
 import operator
+from datetime import datetime
 
 
 class AnalysisState(TypedDict):
@@ -34,7 +35,7 @@ class AnalysisState(TypedDict):
     # ========================================================================
     # PROGRESS TRACKING (Updated by each agent)
     # ========================================================================
-    current_step: Literal["validator", "scanner", "grader", "auditor", "reporter", "complete"]
+    current_step: Literal["validator", "scanner", "grader", "judge", "auditor", "reporter", "complete"]
     """Which agent is currently executing"""
     
     progress: int
@@ -103,6 +104,19 @@ class AnalysisState(TypedDict):
     
     final_credits: Optional[float]
     """Final calculated credits (set by Reporter Agent)"""
+
+    validation_result: Optional[Dict[str, Any]]
+    """
+    Output from Bayesian Validator (Statistical Prior).
+    Used by the Judge Agent to determine if the Grader is hallucinating.
+    Example:
+    {
+        "bayesian_best_estimate": 3,
+        "confidence": 0.85,
+        "expected_range": [2, 3],
+        "reasoning": "Metrics suggest Level 3"
+    }
+    """
     
     # ========================================================================
     # OBSERVABILITY
@@ -142,14 +156,12 @@ class AnalysisState(TypedDict):
 def create_initial_state(
     repo_url: str, 
     user_id: str, 
-    job_id: str,
+    job_id: str, 
     user_github_token: Optional[str] = None
 ) -> AnalysisState:
     """
     Creates the initial state for a new analysis job
     """
-    from datetime import datetime
-    
     return AnalysisState(
         # Input
         repo_url=repo_url,
@@ -167,6 +179,7 @@ def create_initial_state(
         sfia_result=None,  # ← Make sure this is None, not {}
         audit_result=None,
         final_credits=None,
+        validation_result=None, # Initialize as None
         
         # Observability
         opik_trace_id=None,
@@ -189,6 +202,7 @@ def get_progress_for_step(step: str) -> int:
         "validator": 10,
         "scanner": 40,
         "grader": 70,
+        "judge": 80,     # Added Judge step
         "auditor": 85,
         "reporter": 95,
         "complete": 100

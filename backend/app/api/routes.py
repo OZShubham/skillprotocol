@@ -85,6 +85,8 @@ class ResultResponse(BaseModel):
     errors: list[str] = []
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+    sfia_result: Optional[dict] = None       # To pass confidence & reasoning
+    validation_result: Optional[dict] = None # To pass Bayesian stats
 
 
 # ============================================================================
@@ -276,7 +278,7 @@ async def get_result(job_id: str):
     result = job.get("result", {})
     
     # Extract data with None checks
-    sfia_result = result.get("sfia_result") or {}  # Handle None
+    sfia_result = result.get("sfia_result") or {}
     sfia_level = sfia_result.get("sfia_level") if sfia_result else None
     sfia_level_name = sfia_result.get("level_name") if sfia_result else None
     
@@ -294,9 +296,14 @@ async def get_result(job_id: str):
         sfia_level=sfia_level,
         sfia_level_name=sfia_level_name,
         opik_trace_url=opik_trace_url,
+        
+        # Pass the full dictionaries now
         validation=result.get("validation"),
         scan_metrics=result.get("scan_metrics"),
         audit_result=result.get("audit_result"),
+        sfia_result=sfia_result,                 # <--- NEW
+        validation_result=result.get("validation_result"), # <--- NEW
+        
         errors=result.get("errors", []),
         started_at=result.get("started_at"),
         completed_at=result.get("completed_at")

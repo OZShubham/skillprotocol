@@ -183,6 +183,30 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
               </div>
             </div>
 
+            {/* NEW: Language Breakdown Section */}
+            {result.scan_metrics?.ncrf?.language_stats && (
+              <div className="mt-6">
+                <h3 className="text-sm font-mono text-text-muted uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <Code className="w-4 h-4 text-primary" />
+                  Language Composition
+                </h3>
+                
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {Object.entries(result.scan_metrics.ncrf.language_stats)
+                    .sort((a, b) => b[1].sloc - a[1].sloc)
+                    .map(([lang, stats]) => (
+                      <div key={lang} className="bg-surface border border-border rounded-lg p-3">
+                        <div className="text-xs text-text-dim uppercase mb-1">{lang}</div>
+                        <div className="text-xl font-bold text-white font-mono-nums">
+                          {((stats.sloc / result.scan_metrics.ncrf.total_sloc) * 100).toFixed(0)}%
+                        </div>
+                        <div className="text-xs text-text-muted">{stats.sloc} SLOC</div>
+                      </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* 3. Evidence Badges */}
             <div className="p-6 bg-surface border border-border rounded-xl">
               <div className="text-xs text-text-dim font-mono mb-4 uppercase">Detected Markers</div>
@@ -224,6 +248,7 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
                 </a>
               )}
             </div>
+
 
             {/* Actions Footer */}
             <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-border">

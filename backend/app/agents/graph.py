@@ -13,7 +13,7 @@ from app.agents.scanner import scan_codebase
 from app.agents.grader import grade_sfia_level
 from app.agents.auditor import reality_check
 from app.agents.reporter import store_and_report
-
+from app.agents.judge import arbitrate_level
 
 # ============================================================================
 # ROUTING LOGIC (FIXED)
@@ -69,27 +69,28 @@ def should_proceed_to_grader(state: AnalysisState) -> Literal["grader", "reporte
     return "grader"
 
 
-def should_retry_grader(state: AnalysisState) -> Literal["grader", "auditor"]:
+def should_retry_grader(state: AnalysisState) -> Literal["grader", "judge"]:
     """
-    Decision after grading: Should we retry if confidence is low?
+    Decision after grading: Should we retry or proceed to judgment?
     """
-    
     sfia_result = state.get("sfia_result")
     if not sfia_result:
-        print("⏭️  [Router] No SFIA result, proceeding to auditor anyway")
-        return "auditor"
+        return "judge" # Always go to judge even on failure (Judge will handle empty state)
     
     confidence = sfia_result.get("confidence", 1.0)
     retry_count = sfia_result.get("retry_count", 0)
     
-    # Retry once if confidence < 70% and haven't retried yet
+    # Retry logic remains, but success ALWAYS goes to Judge
     if confidence < 0.7 and retry_count == 0:
         print(f"🔄 [Router] Low confidence ({confidence:.2f}), retrying grader")
         state["sfia_result"]["retry_count"] = 1
         return "grader"
     
-    print(f"✅ [Router] Confidence acceptable ({confidence:.2f}), proceeding to auditor")
-    return "auditor"
+    print(f"✅ [Router] Grader finished, proceeding to Supreme Court (Judge)")
+    return "judge"
+
+
+    
 
 
 # ============================================================================
@@ -97,7 +98,7 @@ def should_retry_grader(state: AnalysisState) -> Literal["grader", "auditor"]:
 # ============================================================================
 
 def create_analysis_graph():
-    """Creates the LangGraph workflow with all agents"""
+    """Creates the LangGraph workflow with Judge Agent"""
     
     workflow = StateGraph(AnalysisState)
     
@@ -105,46 +106,46 @@ def create_analysis_graph():
     workflow.add_node("validator", validate_repository)
     workflow.add_node("scanner", scan_codebase)
     workflow.add_node("grader", grade_sfia_level)
+    workflow.add_node("judge", arbitrate_level)   # <--- Add Judge Node
     workflow.add_node("auditor", reality_check)
     workflow.add_node("reporter", store_and_report)
     
     # Entry point
     workflow.set_entry_point("validator")
     
-    # Validator → Router → Scanner OR Reporter
+    # Edges
     workflow.add_conditional_edges(
         "validator",
         should_proceed_to_scanner,
-        {
-            "scanner": "scanner",
-            "reporter": "reporter"
-        }
+        {"scanner": "scanner", "reporter": "reporter"}
     )
     
-    # Scanner → Router → Grader OR Reporter
     workflow.add_conditional_edges(
         "scanner",
         should_proceed_to_grader,
-        {
-            "grader": "grader",
-            "reporter": "reporter"
-        }
+        {"grader": "grader", "reporter": "reporter"}
     )
     
-    # Grader → Router → Retry OR Auditor
+    # Grader -> (Retry) OR (Judge)
     workflow.add_conditional_edges(
         "grader",
         should_retry_grader,
         {
-            "grader": "grader",
-            "auditor": "auditor"
+            "grader": "grader", 
+            "judge": "judge"  
         }
     )
     
-    # Auditor → Reporter
+    # Judge -> Auditor (Standard flow)
+    workflow.add_edge("judge", "auditor")
+    
+    # Judge -> Auditor
+    
+    
+    # Auditor -> Reporter
     workflow.add_edge("auditor", "reporter")
     
-    # Reporter → END
+    # Reporter -> END
     workflow.add_edge("reporter", END)
     
     # Compile
