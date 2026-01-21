@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     OPIK_API_KEY: str = ""
     OPIK_WORKSPACE: str = ""
-    OPIK_PROJECT: str = "skillprotocol"
+    OPIK_PROJECT_NAME: str = "skillprotocol"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     MAX_REPO_SIZE_KB: int = 100000  # 100MB

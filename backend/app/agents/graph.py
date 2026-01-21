@@ -6,7 +6,7 @@ from opik.integrations.langchain import OpikTracer
 from typing import Literal
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
-
+from app.core.config import settings
 from app.core.state import AnalysisState
 from app.agents.validator import validate_repository
 from app.agents.scanner import scan_codebase
@@ -189,6 +189,7 @@ async def run_analysis(
     )
 
     opik_tracer = OpikTracer(
+        project_name=settings.OPIK_PROJECT_NAME,
         tags=["production", "skill-verification"],
         metadata={
             "user_id": user_id,

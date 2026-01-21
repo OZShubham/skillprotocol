@@ -1,21 +1,11 @@
-# ============================================================================
-# FILE: backend/app/core/opik_config.py
-# ============================================================================
-"""
-Centralized Opik Configuration
-This ensures ALL traces go to the same project
-"""
-
+# backend/app/core/opik_config.py
 import opik
 from opik import Opik
 from functools import wraps
 from app.core.config import settings
 
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-
-MAIN_PROJECT = "skillprotocol"
+# CORRECT: Dynamic reference to settings, not a hardcoded string
+MAIN_PROJECT = settings.OPIK_PROJECT_NAME 
 
 PROJECTS = {
     "main": MAIN_PROJECT,
@@ -23,18 +13,13 @@ PROJECTS = {
     "optimizer": MAIN_PROJECT
 }
 
-# ============================================================================
-# SINGLETON CLIENT
-# ============================================================================
-
 class OpikManager:
     _instances = {}
     
     @classmethod
     def get_client(cls, project: str = None) -> Opik:
-        # If no project specified, OR if it's one of the old separate ones, 
-        # force usage of MAIN_PROJECT.
-        target_project = MAIN_PROJECT
+        # Default to the configured main project
+        target_project = project or MAIN_PROJECT
         
         if target_project not in cls._instances:
             cls._instances[target_project] = Opik(
@@ -45,10 +30,6 @@ class OpikManager:
         
         return cls._instances[target_project]
 
-# ============================================================================
-# DECORATOR WITH CORRECT PROJECT
-# ============================================================================
-
 def track_agent(
     name: str,
     agent_type: str = "tool",
@@ -56,20 +37,23 @@ def track_agent(
     tags: list = None
 ):
     """
-    Custom track decorator that ensures correct project routing.
+    Decorator that explicitly passes the project name from settings.
+    This prevents Opik from falling back to 'Default Project'.
     """
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Ensure we use the main project
-            target_project = MAIN_PROJECT
+            # 1. Resolve project from settings if not provided
+            target_project = project or MAIN_PROJECT
+            
+            # 2. Ensure client is initialized
             OpikManager.get_client(target_project)
             
-            # Apply opik.track dynamically
+            # 3. Explicitly pass project_name to the native tracker
             tracked_func = opik.track(
                 name=name,
                 type=agent_type,
-                project_name=target_project,
+                project_name=target_project, # <--- The Fix: Explicit passing
                 tags=tags or []
             )(func)
             
@@ -79,17 +63,9 @@ def track_agent(
         return wrapper
     return decorator
 
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
-
+# Helpers remain the same, but now use the dynamic MAIN_PROJECT
 def log_to_main_project(name: str, input_data: dict, output_data: dict, metadata: dict = None):
-    """
-    Manually log a trace to the main project
-    """
     client = OpikManager.get_client(MAIN_PROJECT)
-    
-    # Log trace to the unified project
     client.trace(
         name=name,
         input=input_data,
@@ -99,18 +75,11 @@ def log_to_main_project(name: str, input_data: dict, output_data: dict, metadata
     )
 
 def log_evaluation_trace(name: str, input_data: dict, output_data: dict, metrics: dict):
-    """
-    Log evaluation traces to the main project (tagged as evaluation)
-    """
     client = OpikManager.get_client(MAIN_PROJECT)
-    
     client.trace(
         name=name,
         input=input_data,
         output=output_data,
-        tags=["evaluation"],  # Use tags to distinguish, not project
-        metadata={
-            **metrics,
-            "experiment_type": "evaluation"
-        }
+        tags=["evaluation"],
+        metadata={**metrics, "experiment_type": "evaluation"}
     )

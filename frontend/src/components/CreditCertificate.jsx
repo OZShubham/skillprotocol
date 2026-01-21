@@ -1,10 +1,11 @@
-import { motion } from 'framer-motion'
-import { Award, ExternalLink, Download, Share2, CheckCircle, Code, Shield, BrainCircuit, Check, ArrowLeft } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Award, ExternalLink, Download, Share2, CheckCircle, Code, Shield, BrainCircuit, Check, ThumbsUp, ThumbsDown, MessageSquare } from 'lucide-react'
 import confetti from 'canvas-confetti'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { api } from '../services/api' 
 import OpikInsights from './OpikInsights'
 
-export default function CreditCertificate({ result, onViewDashboard, onBack }) {
+export default function CreditCertificate({ result, onViewDashboard }) {
   
   useEffect(() => {
     confetti({
@@ -27,34 +28,14 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
   const levelColorClass = sfiaLevelColors[result.sfia_level] || 'text-primary border-primary/50'
 
   const handleDownload = () => {
-    // Create a downloadable JSON file
     const dataStr = JSON.stringify(result, null, 2)
     const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr)
-    
     const exportFileDefaultName = `skillprotocol-certificate-${result.verification_id}.json`
-    
     const linkElement = document.createElement('a')
     linkElement.setAttribute('href', dataUri)
     linkElement.setAttribute('download', exportFileDefaultName)
     linkElement.click()
   }
-
-  const handleFeedback = async (score) => {
-  try {
-    await fetch(`${API_URL}/feedback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        job_id: result.verification_id, // Ensure this maps to Opik Trace ID
-        score: score,
-        comment: score === 1 ? "User verified accuracy" : "User disputed result"
-      })
-    });
-    alert("Feedback sent! This helps improve our Judge Agent.");
-  } catch (e) {
-    console.error("Feedback failed", e);
-  }
-}
 
   const handleShare = async () => {
     const shareData = {
@@ -62,12 +43,10 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
       text: `I just earned ${result.final_credits} verified skill credits at SFIA Level ${result.sfia_level}!`,
       url: window.location.href
     }
-
     try {
       if (navigator.share) {
         await navigator.share(shareData)
       } else {
-        // Fallback: Copy to clipboard
         await navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`)
         alert('Link copied to clipboard!')
       }
@@ -200,18 +179,9 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
               </div>
             </div>
 
-            <div className="flex gap-4 justify-center mt-6">
-              <button onClick={() => handleFeedback(1)} className="text-green-400 border border-green-400/30 px-4 py-2 rounded hover:bg-green-400/10">
-                👍 Accurate
-              </button>
-              <button onClick={() => handleFeedback(0)} className="text-red-400 border border-red-400/30 px-4 py-2 rounded hover:bg-red-400/10">
-                👎 Inaccurate
-              </button>
-            </div>
-
-            {/* NEW: Language Breakdown Section */}
+            {/* 3. [RESTORED] Language Breakdown Section */}
             {result.scan_metrics?.ncrf?.language_stats && (
-              <div className="mt-6">
+              <div>
                 <h3 className="text-sm font-mono text-text-muted uppercase tracking-wider mb-4 flex items-center gap-2">
                   <Code className="w-4 h-4 text-primary" />
                   Language Composition
@@ -228,14 +198,12 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
                         </div>
                         <div className="text-xs text-text-muted">{stats.sloc} SLOC</div>
                       </div>
-                  ))}
+                    ))}
                 </div>
               </div>
             )}
 
-            
-
-            {/* 3. Evidence Badges */}
+            {/* 4. Evidence Badges */}
             <div className="p-6 bg-surface border border-border rounded-xl">
               <div className="text-xs text-text-dim font-mono mb-4 uppercase">Detected Markers</div>
               <div className="flex flex-wrap gap-2">
@@ -245,12 +213,16 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
                 })}
               </div>
             </div>
-            {/* 🆕 3.5 Opik Quality Insights - NEW SECTION */}
+
+            {/* 5. Opik Quality Insights */}
             <div className="p-6 bg-panel border border-border rounded-xl">
               <OpikInsights result={result} />
             </div>
 
-            {/* 4. Opik Verification */}
+            {/* 6. Human Verification (Feedback) */}
+            <FeedbackSection jobId={result.verification_id} />
+
+            {/* 7. Opik Trace Link */}
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-6">
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -276,7 +248,6 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
                 </a>
               )}
             </div>
-
 
             {/* Actions Footer */}
             <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-border">
@@ -321,7 +292,88 @@ export default function CreditCertificate({ result, onViewDashboard, onBack }) {
   )
 }
 
-// --- SUB-COMPONENTS ---
+// --- FEEDBACK COMPONENT ---
+function FeedbackSection({ jobId }) {
+  const [status, setStatus] = useState('idle') // idle, submitting, success, error
+  const [selectedScore, setSelectedScore] = useState(null)
+
+  const handleSubmit = async (score) => {
+    if (status === 'submitting' || status === 'success') return
+    
+    setStatus('submitting')
+    setSelectedScore(score)
+
+    try {
+      await api.submitFeedback(jobId, score, score === 1 ? "Verified by user" : "Disputed by user")
+      
+      setTimeout(() => {
+        setStatus('success')
+      }, 800)
+    } catch (e) {
+      console.error(e)
+      setStatus('error')
+      setTimeout(() => setStatus('idle'), 3000)
+    }
+  }
+
+  if (status === 'success') {
+    return (
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="p-6 bg-success/5 border border-success/20 rounded-xl flex items-center justify-center gap-3 text-success"
+      >
+        <CheckCircle className="w-5 h-5" />
+        <span className="font-medium">Thank you! Your feedback helps improve our AI Judge.</span>
+      </motion.div>
+    )
+  }
+
+  return (
+    <div className="bg-surface border border-border rounded-xl p-6 relative overflow-hidden">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
+        <div>
+          <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-1">
+            <MessageSquare className="w-4 h-4 text-primary" />
+            Human Verification
+          </h3>
+          <p className="text-xs text-text-muted">
+            Do you agree with the AI Judge's assessment? This data trains our <span className="text-primary">Opik Optimizer</span>.
+          </p>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={() => handleSubmit(1)}
+            disabled={status === 'submitting'}
+            className="group flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-void hover:border-success/50 hover:bg-success/5 transition-all disabled:opacity-50"
+          >
+            <ThumbsUp className={`w-4 h-4 ${selectedScore === 1 ? 'text-success fill-success' : 'text-text-muted group-hover:text-success'}`} />
+            <span className={`text-sm font-medium ${selectedScore === 1 ? 'text-success' : 'text-text-muted group-hover:text-white'}`}>
+              Agree
+            </span>
+          </button>
+
+          <button
+            onClick={() => handleSubmit(0)}
+            disabled={status === 'submitting'}
+            className="group flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-void hover:border-error/50 hover:bg-error/5 transition-all disabled:opacity-50"
+          >
+            <ThumbsDown className={`w-4 h-4 ${selectedScore === 0 ? 'text-error fill-error' : 'text-text-muted group-hover:text-error'}`} />
+            <span className={`text-sm font-medium ${selectedScore === 0 ? 'text-error' : 'text-text-muted group-hover:text-white'}`}>
+              Disagree
+            </span>
+          </button>
+        </div>
+      </div>
+      
+      {/* Background Gradient */}
+      <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+    </div>
+  )
+}
+
+// --- HELPERS ---
 
 function MetricCard({ label, value, sub, highlight, isSuccess }) {
   let valueColor = 'text-white'

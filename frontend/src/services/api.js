@@ -28,6 +28,10 @@ export const api = {
       throw error;
     }
   },
+  
+
+
+
 
   /**
    * Check the status of a running job
@@ -75,6 +79,29 @@ export const api = {
     } catch (error) {
       console.error('API Error:', error);
       return []; // Return empty array on error so UI doesn't crash
+    }
+  },
+
+
+  submitFeedback: async (jobId, score, comment = null) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          job_id: jobId,
+          score: score,
+          comment: comment
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to submit feedback');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Feedback API Error:', error);
+      throw error;
     }
   }
 };
