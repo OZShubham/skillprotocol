@@ -1,7 +1,9 @@
 import { motion } from "framer-motion";
+import { useState } from "react";
 
 export default function SkillGraph() {
-  // Mock nodes: Center is User, Satellites are Skills
+  const [hoveredNode, setHoveredNode] = useState(null);
+
   const nodes = [
     { id: "core", x: 50, y: 50, r: 8, label: "YOU", color: "#F59E0B" },
     { id: "py", x: 20, y: 30, r: 5, label: "Python", color: "#FFFFFF" },
@@ -15,8 +17,8 @@ export default function SkillGraph() {
     { from: "core", to: "js" },
     { from: "core", to: "ai" },
     { from: "core", to: "fe" },
-    { from: "py", to: "ai" }, // Python relates to AI
-    { from: "js", to: "fe" }, // React relates to FastAPI (Fullstack)
+    { from: "py", to: "ai" }, 
+    { from: "js", to: "fe" }, 
   ];
 
   return (
@@ -27,6 +29,8 @@ export default function SkillGraph() {
           {links.map((link, i) => {
             const start = nodes.find((n) => n.id === link.from);
             const end = nodes.find((n) => n.id === link.to);
+            const isConnected = hoveredNode && (link.from === hoveredNode || link.to === hoveredNode);
+            
             return (
               <motion.line
                 key={i}
@@ -34,8 +38,8 @@ export default function SkillGraph() {
                 y1={start.y}
                 x2={end.x}
                 y2={end.y}
-                stroke="#262626"
-                strokeWidth="0.5"
+                stroke={isConnected ? "#F59E0B" : "#262626"}
+                strokeWidth={isConnected ? "1" : "0.5"}
                 initial={{ pathLength: 0 }}
                 animate={{ pathLength: 1 }}
                 transition={{ duration: 1.5, delay: 0.5 }}
@@ -50,6 +54,9 @@ export default function SkillGraph() {
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ delay: i * 0.1, type: "spring" }}
+              onMouseEnter={() => setHoveredNode(node.id)}
+              onMouseLeave={() => setHoveredNode(null)}
+              style={{ cursor: 'pointer' }}
             >
               {/* Pulse Effect for Core and AI */}
               {(node.id === "core" || node.id === "ai") && (
@@ -70,16 +77,16 @@ export default function SkillGraph() {
                 r={node.r}
                 fill={node.color === "#FFFFFF" ? "#121212" : node.color}
                 stroke={node.color}
-                strokeWidth="1"
-                className="cursor-pointer hover:fill-primary transition-colors"
+                strokeWidth={hoveredNode === node.id ? "2" : "1"}
+                className="transition-all duration-300"
               />
               <text
                 x={node.x}
                 y={node.y + node.r + 5}
                 fontSize="4"
-                fill="#A1A1AA"
+                fill={hoveredNode === node.id ? "#FFFFFF" : "#A1A1AA"}
                 textAnchor="middle"
-                className="font-mono uppercase"
+                className="font-mono uppercase pointer-events-none transition-colors"
               >
                 {node.label}
               </text>

@@ -9,6 +9,8 @@ from app.core.config import settings
 from app.core.opik_config import track_agent, log_to_main_project
 from app.core.opik_advanced import OpikQualityDashboard
 
+from app.evaluation.production_evals import get_production_eval_suite
+
 # NEW IMPORTS
 from app.services.validation import get_validator, get_git_analyzer
 
@@ -154,6 +156,27 @@ async def store_and_report(state: AnalysisState) -> AnalysisState:
         # ====================================================================
         certificate = _generate_certificate(state, validation_result)
         state["certificate"] = certificate
+        # ====================================================================
+        # 🆕 STEP 4.5: RUN PRODUCTION EVALUATION (HACKATHON CRITICAL)
+        # ====================================================================
+
+        try:
+            eval_suite = get_production_eval_suite()
+            
+            if await eval_suite.should_evaluate():
+                print(f"🔬 [Reporter Agent] Running production evaluation...")
+                
+                eval_result = await eval_suite.run_quality_check(state)
+                
+                # Store eval result in state
+                state["production_eval"] = eval_result
+                
+                print(f"✅ [Reporter Agent] Production eval complete: {eval_result.get('average_score', 0):.2f}")
+        
+        except Exception as e:
+            print(f"⚠️  [Reporter Agent] Production eval failed: {str(e)}")
+            # Don't fail the whole analysis
+
 
         # ====================================================================
         # STEP 5: LOG QUALITY METRICS TO OPIK (ENHANCED)

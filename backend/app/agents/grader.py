@@ -1,7 +1,5 @@
 """
-Grader Agent
-Uses LLM (Groq) to assign SFIA level based on scan metrics and markers.
-Now includes 'Statistical Anchoring' to reduce hallucinations.
+Grader Agent - WITH EXPERIMENT TRACKING
 """
 
 import json
@@ -12,14 +10,15 @@ from app.core.state import AnalysisState, get_progress_for_step
 from app.core.config import settings
 from app.services.scoring.engine import ScoringEngine
 
-# Imports
 from app.core.opik_config import track_agent
 from app.core.opik_advanced import OpikGuardrailMonitor
-
-# --- NEW IMPORT ---
 from app.services.validation.bayesian_validator import get_validator
 
-# Decorator
+# 🆕 NEW IMPORTS
+from opik import opik_context
+from app.optimization.ab_testing import log_variant_result
+
+
 @track_agent(
     name="Grader Agent",
     agent_type="llm",
@@ -27,22 +26,19 @@ from app.services.validation.bayesian_validator import get_validator
 )
 async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
     """
-    Agent 3: Grader
+    Agent 3: Grader (WITH EXPERIMENT TRACKING)
     
-    Responsibilities:
-    1. Calculate Bayesian Prior (Statistical Anchor)
-    2. Build SFIA prompt (Anchored with stats)
-    3. Call Groq LLM
-    4. Save BOTH results for the Judge
+    Enhancements for hackathon:
+    1. Logs experiment configuration to Opik
+    2. Tracks A/B test results
+    3. Tags traces with prompt version
     """
     
-    # Update progress
     state["current_step"] = "grader"
     state["progress"] = get_progress_for_step("grader")
     
     print(f"🎓 [Grader Agent] Starting SFIA assessment...")
     
-    # Check if we have scan metrics
     if not state.get("scan_metrics"):
         error_msg = "No scan metrics available for grading"
         print(f"❌ [Grader Agent] {error_msg}")
@@ -60,13 +56,10 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         print(f"🧮 [Grader Agent] Calculating Bayesian prior...")
         validator = get_validator()
         
-        # Get purely statistical suggestion based on metrics
-        # NOTE: Ensure you added 'get_statistical_suggestion' to bayesian_validator.py
         statistical_hint = validator.get_statistical_suggestion(state["scan_metrics"])
         
         print(f"   ↳ Math suggests Level {statistical_hint['suggested_level']} (Confidence: {statistical_hint['confidence']:.1%})")
 
-        # IMPORTANT: Save this to state so the Judge Agent can see it later!
         state["validation_result"] = {
              "bayesian_best_estimate": statistical_hint['suggested_level'],
              "confidence": statistical_hint['confidence'],
@@ -75,10 +68,35 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         }
 
         # ====================================================================
+        # 🆕 STEP 1.5: LOG EXPERIMENT CONFIGURATION
+        # ====================================================================
+        experiment_config = {
+            "model": settings.LLM_MODEL,
+            "temperature": settings.LLM_TEMPERATURE,
+            "prompt_version": "v2.1-bayesian-anchored",
+            "statistical_hint_enabled": True,
+            "bayesian_prior": statistical_hint['suggested_level']
+        }
+        
+        # Update current trace with experiment metadata
+        opik_context.update_current_trace(
+            tags=[
+                "production",
+                f"model:{settings.LLM_MODEL}",
+                f"prompt:v2.1",
+                "bayesian-anchored",
+                "ab-test-variant-b"  # This is variant B (with anchoring)
+            ],
+            metadata={
+                "experiment": experiment_config,
+                "statistical_prior": statistical_hint,
+                "repo_complexity": ncrf_data.get("total_complexity")
+            }
+        )
+        
+        # ====================================================================
         # STEP 2: Build the SFIA Rubric Prompt (With Anchor)
         # ====================================================================
-        # We pass the hint to the engine to create the "Anchored" prompt
-        # NOTE: Ensure 'get_sfia_rubric_prompt' in engine.py accepts this arg
         prompt = engine.get_sfia_rubric_prompt(ncrf_data, markers, statistical_hint)
         
         print(f"📝 [Grader Agent] Built Anchored Prompt ({len(prompt)} chars)")
@@ -105,7 +123,6 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         # STEP 4: Call Groq LLM
         # ====================================================================
         try:
-            # NOTE: Wrapped in main trace via @track_agent decorator
             response = await client.chat.completions.create(
                 model=settings.LLM_MODEL,
                 messages=[
@@ -234,6 +251,28 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         print(f"   - Confidence: {confidence:.2%}")
         
         # ====================================================================
+        # 🆕 STEP 8.5: LOG A/B TEST RESULT
+        # ====================================================================
+        llm_level = sfia_level
+        stats_level = statistical_hint['suggested_level']
+        agreement = abs(llm_level - stats_level) <= 1  # Within 1 level = agreement
+        
+        # Log to A/B testing framework
+        log_variant_result(
+            experiment_name="bayesian-anchoring-v2",
+            variant="b",  # This is the "anchored" variant
+            result={
+                "llm_level": llm_level,
+                "bayesian_level": stats_level,
+                "agreement": agreement,
+                "confidence": confidence,
+                "job_id": state.get("job_id")
+            }
+        )
+        
+        print(f"📊 [Grader Agent] A/B Test logged: Agreement={agreement}")
+        
+        # ====================================================================
         # STEP 9: Build Result
         # ====================================================================
         reasoning = sfia_data.get("reasoning", "No reasoning provided")
@@ -249,7 +288,9 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
             "evidence": evidence_list,
             "missing_for_next_level": missing_for_next,
             "retry_count": retry_count,
-            "model_used": settings.LLM_MODEL
+            "model_used": settings.LLM_MODEL,
+            # 🆕 Add experiment metadata
+            "experiment_config": experiment_config
         }
         
         state["sfia_result"] = new_sfia_result

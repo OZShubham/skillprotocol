@@ -1,5 +1,5 @@
 # ============================================================================
-# FILE 3: backend/app/evaluation/runner.py
+# FILE: backend/app/evaluation/runner.py
 # ============================================================================
 """
 Main Evaluation Runner - Executes tests and generates reports
@@ -14,11 +14,12 @@ from typing import List, Dict, Any
 from pathlib import Path
 
 from app.evaluation.golden_dataset import GOLDEN_REPOS, validate_golden_dataset
+# CHANGE: Import the classes, not functions
 from app.evaluation.metrics import (
-    sfia_level_accuracy,
-    credit_range_consistency,
-    marker_detection_accuracy,
-    reasoning_quality
+    SfiaLevelAccuracy,
+    CreditRangeConsistency,
+    MarkerDetectionAccuracy,
+    ReasoningQuality
 )
 
 from app.core.opik_config import OpikManager, PROJECTS, log_evaluation_trace
@@ -32,12 +33,12 @@ class SkillProtocolEvaluationRunner:
         self.client = OpikManager.get_client(PROJECTS["eval"])
         self.project_name = PROJECTS["eval"]
 
-        # All metrics to evaluate
+        # CHANGE: Instantiate the metric classes
         self.metrics = [
-            sfia_level_accuracy,
-            credit_range_consistency,
-            marker_detection_accuracy,
-            reasoning_quality
+            SfiaLevelAccuracy(),
+            CreditRangeConsistency(),
+            MarkerDetectionAccuracy(),
+            ReasoningQuality()
         ]
         
         # Validate dataset on init
@@ -58,7 +59,7 @@ class SkillProtocolEvaluationRunner:
         print(f"✅ Dataset created with {len(GOLDEN_REPOS)} repositories")
         return dataset
     
-    @track(name="Full Evaluation Run", type="tool", project="skillprotocol-evals")
+    @track(name="Full Evaluation Run", type="tool", project_name="skillprotocol-evals")
     async def run_evaluation(
         self, 
         experiment_name: str = "baseline",
@@ -67,14 +68,6 @@ class SkillProtocolEvaluationRunner:
     ) -> Dict[str, Any]:
         """
         Runs complete evaluation on golden dataset
-        
-        Args:
-            experiment_name: Name for this evaluation run (e.g., "baseline", "optimized")
-            limit: Only evaluate first N repos (for testing)
-            skip_analysis: If True, load cached results instead of re-running
-        
-        Returns:
-            Complete evaluation results with metrics
         """
         from app.agents.graph import run_analysis
         
@@ -128,7 +121,11 @@ class SkillProtocolEvaluationRunner:
                 metric_details = []
                 
                 for metric in self.metrics:
-                    score_result = metric(repo_item, state)
+                    # CHANGE: Call .score() with named arguments
+                    score_result = metric.score(
+                        dataset_item=repo_item, 
+                        llm_output=state
+                    )
                     scores[score_result.name] = score_result.value
                     metric_details.append(score_result)
                     
@@ -168,7 +165,7 @@ class SkillProtocolEvaluationRunner:
                     "name": f"Eval: {repo_name}",
                     "tags": [
                         experiment_name, 
-                        f"level_{repo_item['expected_sfia_level']}",
+                        f"level_{repo_item['expected_sfia_level']}", 
                         "evaluation"
                     ],
                     "metadata": {
@@ -253,9 +250,9 @@ class SkillProtocolEvaluationRunner:
         print(f"📊 EVALUATION SUMMARY: {experiment_name}")
         print(f"{'='*80}")
         print(f"\nRepositories:")
-        print(f"  Total:      {summary['total_repos']}")
+        print(f"  Total:       {summary['total_repos']}")
         print(f"  Successful: {summary['successful']}")
-        print(f"  Failed:     {summary['failed']}")
+        print(f"  Failed:      {summary['failed']}")
         
         print(f"\nMetrics:")
         print(f"  SFIA Accuracy:        {avg_sfia:.1%}")

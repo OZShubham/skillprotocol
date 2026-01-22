@@ -2,7 +2,24 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
 export const api = {
   /**
-   * Start a new analysis job
+   * 1. Get Opik Dashboard Stats (A/B Tests & Trends)
+   */
+  getOpikStats: async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/opik/dashboard-stats`);
+      if (!response.ok) {
+        // It is okay to fail here (e.g. if Opik is down), just return null so UI handles it gracefully
+        return null;
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('API Error:', error);
+      return null; 
+    }
+  },
+
+  /**
+   * 2. Start a new analysis job
    */
   analyzeRepo: async (repoUrl, userId = 'demo-user', token = null) => {
     try {
@@ -28,13 +45,9 @@ export const api = {
       throw error;
     }
   },
-  
-
-
-
 
   /**
-   * Check the status of a running job
+   * 3. Check the status of a running job
    */
   checkStatus: async (jobId) => {
     try {
@@ -50,7 +63,7 @@ export const api = {
   },
 
   /**
-   * Get the final result of a completed job
+   * 4. Get the final result of a completed job
    */
   getResult: async (jobId) => {
     try {
@@ -66,8 +79,7 @@ export const api = {
   },
 
   /**
-   * Get user history from DB
-   * This is the new function needed for persistent history
+   * 5. Get user history from DB (Persistent History)
    */
   getUserHistory: async (userId) => {
     try {
@@ -82,7 +94,9 @@ export const api = {
     }
   },
 
-
+  /**
+   * 6. Submit Human Feedback (Thumbs Up/Down)
+   */
   submitFeedback: async (jobId, score, comment = null) => {
     try {
       const response = await fetch(`${API_BASE_URL}/feedback`, {

@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.api.routes import router
 from app.models.database import init_db
+from app.api.dashboard_routes import router as dashboard_router
 
 
 @asynccontextmanager
@@ -52,6 +53,7 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(router, prefix="/api")
+app.include_router(dashboard_router, prefix="/api") 
 
 
 @app.get("/")

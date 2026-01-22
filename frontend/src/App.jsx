@@ -1,10 +1,10 @@
 import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { LayoutDashboard } from 'lucide-react'
+import { LayoutDashboard, Activity } from 'lucide-react'
 import { api } from './services/api'
 import logo from './assets/logo.png'
-
+import OpikQualityDashboard from './components/OpikQualityDashboard'
 // Components
 import LandingPage from './components/LandingPage'
 import AnalysisPage from './components/AnalysisPage'
@@ -180,6 +180,14 @@ export default function App() {
               />
             </button>
 
+            <button
+              onClick={() => navigate('/opik-dashboard')}
+              className="flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 transition-all"
+            >
+              <Activity className="w-4 h-4 text-gray-400" />
+              <span className="text-sm font-medium text-gray-300">Opik Metrics</span>
+            </button>
+
             {/* Actions Area */}
             <div className="flex items-center gap-6">
               
@@ -248,6 +256,18 @@ export default function App() {
               <CertificateLoader />
             </motion.div>
           } />
+
+          <Route path="/opik-dashboard" element={
+          <motion.div
+            key="opik-dashboard"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
+          >
+            <OpikQualityDashboard />
+          </motion.div>
+        } />
 
           <Route path="/dashboard" element={
             <motion.div

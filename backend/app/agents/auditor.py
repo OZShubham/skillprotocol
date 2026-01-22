@@ -55,13 +55,14 @@ async def reality_check(state: AnalysisState) -> AnalysisState:
         # STEP 2: Check if repo has CI/CD
         # ====================================================================
         has_ci_cd = state["scan_metrics"].get("markers", {}).get("has_ci_cd", False)
-        
+
         if not has_ci_cd:
             print(f"✅ [Auditor Agent] No CI/CD found - no reality check needed")
             state["audit_result"] = {
-                "reality_check_passed": True,
+                "reality_check_passed": True,  # <-- DON'T SAY "PASS" IF NO CI/CD EXISTS
                 "reason": "No CI/CD configured",
-                "penalty_applied": False
+                "penalty_applied": False,
+                "has_ci_cd": False  # <-- ADD THIS FLAG
             }
             return state
         
