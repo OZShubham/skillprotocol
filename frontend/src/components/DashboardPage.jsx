@@ -8,39 +8,78 @@ import {
 import SpotlightCard from './ui/SpotlightCard'
 import SkillGraph from './ui/SkillGraph'
 import OpikInsights from './OpikInsights'
+import { api } from '../services/api' 
 
 export default function DashboardPage({ onNewAnalysis, userStats, analysisHistory, onViewCertificate }) {
-  // --- STATE FOR TRANSPARENT LOGS ---
   const [selectedAgent, setSelectedAgent] = useState(null)
   
-  // Helper for initials
+  // --- AUTHORITY DATA CALCULATION ---
+  // Fixes "wrong info" by calculating metrics directly from the source of truth (history)
+  const localStats = useMemo(() => {
+    if (!analysisHistory || analysisHistory.length === 0) {
+      return {
+        ...userStats,
+        totalCredits: 0,
+        verifiedRepos: 0,
+        avgSfia: 0,
+        rank: 'UNRANKED'
+      }
+    }
+
+    // Deduplicate history by Repo URL taking the highest credit run per repo
+    const uniqueRepoCredits = {};
+    analysisHistory.forEach(item => {
+      const url = item.repo_url;
+      const credits = item.final_credits || 0;
+      if (!uniqueRepoCredits[url] || credits > uniqueRepoCredits[url]) {
+        uniqueRepoCredits[url] = credits;
+      }
+    });
+
+    const total = Object.values(uniqueRepoCredits).reduce((a, b) => a + b, 0);
+    const verifiedCount = Object.keys(uniqueRepoCredits).length;
+    
+    // Calculate actual average SFIA level from all successful runs
+    const validLevels = analysisHistory
+      .map(item => item.sfia_level)
+      .filter(lvl => lvl && lvl > 0);
+      
+    const avgLevel = validLevels.length > 0 
+      ? validLevels.reduce((a, b) => a + b, 0) / validLevels.length 
+      : 0;
+
+    return {
+      ...userStats,
+      totalCredits: total,
+      verifiedRepos: verifiedCount,
+      avgSfia: avgLevel.toFixed(1),
+      username: userStats.username || 'Developer'
+    };
+  }, [analysisHistory, userStats]);
+
   const getInitials = (name) => {
     if (!name || name === 'Guest') return 'GU'
     return name.substring(0, 2).toUpperCase()
   }
 
-  // --- SAFE DATE PARSING ---
   const getSafeDate = (dateString) => {
     try {
       if (!dateString) return new Date(); 
       const date = new Date(dateString);
-      if (isNaN(date.getTime())) return new Date(); 
-      return date;
+      return isNaN(date.getTime()) ? new Date() : date;
     } catch (e) {
       return new Date();
     }
   }
 
-  // --- METRICS ---
   const growthPercentage = useMemo(() => {
-    if (analysisHistory.length < 2) return 0
+    if (!analysisHistory || analysisHistory.length < 2) return 0
     const recent = analysisHistory.slice(0, 5).reduce((sum, item) => sum + (item.final_credits || 0), 0)
     const older = analysisHistory.slice(5, 10).reduce((sum, item) => sum + (item.final_credits || 0), 0)
-    if (older === 0) return 100
+    if (older === 0) return recent > 0 ? 100 : 0
     return Math.round(((recent - older) / older) * 100)
   }, [analysisHistory])
 
-  // Heatmap Data
   const heatmapData = useMemo(() => {
     const last30Days = Array.from({ length: 30 }, (_, i) => {
       const date = new Date()
@@ -50,9 +89,9 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
 
     return last30Days.map(date => {
       const count = analysisHistory.filter(item => {
-        const rawDate = item.created_at || item.timestamp;
-        const itemDate = getSafeDate(rawDate).toISOString().split('T')[0];
-        return itemDate === date;
+        const rawDate = item.created_at || item.timestamp || item.started_at;
+        if (!rawDate) return false;
+        return getSafeDate(rawDate).toISOString().split('T')[0] === date;
       }).length
 
       let intensity = 'bg-surface'
@@ -64,26 +103,25 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
     })
   }, [analysisHistory])
 
-  // Recent Activity Log
   const recentActivity = useMemo(() => {
-    return analysisHistory.slice(0, 5).map(item => {
+    return (analysisHistory || []).slice(0, 5).map(item => {
       const repoName = item.repo_url?.split('/').slice(-2).join('/') || 'Unknown Repo'
-      const rawDate = item.created_at || item.timestamp;
-      const time = getTimeAgo(rawDate);
+      const rawDate = item.created_at || item.timestamp || item.started_at;
       
       return {
-        id: item.id || item.verification_id,
+        id: item.id || item.job_id || item.verification_id,
         action: item.final_credits > 0 ? 'Minted Credits' : 'Analysis Failed',
         repo: repoName,
-        amount: item.final_credits > 0 ? `+${item.final_credits.toFixed(1)}` : 'Err',
-        time,
+        amount: item.final_credits > 0 ? `+${item.final_credits.toFixed(1)}` : '0.0',
+        time: getTimeAgo(rawDate),
         status: item.final_credits > 0 ? 'success' : 'failed',
         result: item
       }
     })
   }, [analysisHistory])
 
-  const userInitials = getInitials(userStats.username)
+  // Identifies the active job for the Live Trace stream
+  const activeJobId = analysisHistory[0]?.id || analysisHistory[0]?.job_id;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 pb-20">
@@ -92,14 +130,14 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10 border-b border-border pb-8">
         <div className="flex items-center gap-5">
           <div className="w-16 h-16 bg-panel border border-border rounded-full flex items-center justify-center relative overflow-hidden group">
-            <span className="font-mono text-2xl font-bold text-white">{userInitials}</span>
+            <span className="font-mono text-2xl font-bold text-white">{getInitials(localStats.username)}</span>
             <div className="absolute inset-0 rounded-full border-2 border-primary/30 animate-pulse" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3">
-              {userStats.username}
+              {localStats.username}
               <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-primary/10 text-primary border border-primary/20 uppercase tracking-wider font-bold">
-                {userStats.rank}
+                {localStats.rank || 'CITIZEN'}
               </span>
             </h1>
             <p className="text-text-muted text-sm font-mono mt-1 flex items-center gap-3">
@@ -107,14 +145,20 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
               <span className="text-border">|</span>
               <span className="text-success flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-                Active
+                Live Node Active
               </span>
             </p>
           </div>
         </div>
 
         <div className="flex gap-3">
-          <button className="px-4 py-2 bg-panel hover:bg-surface border border-border text-text-muted hover:text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 group">
+          <button 
+            onClick={() => {
+                navigator.clipboard.writeText(window.location.href);
+                alert("Profile URL copied!");
+            }}
+            className="px-4 py-2 bg-panel hover:bg-surface border border-border text-text-muted hover:text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 group"
+          >
             <ExternalLink className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" /> 
             Share Profile
           </button>
@@ -140,7 +184,7 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
               </span>
             )}
           </div>
-          <div className="text-3xl font-bold text-white font-mono-nums">{userStats.totalCredits.toFixed(1)}</div>
+          <div className="text-3xl font-bold text-white font-mono-nums">{(localStats.totalCredits || 0).toFixed(1)}</div>
           <div className="text-xs text-text-muted mt-1 uppercase tracking-wider font-mono">Total Credits</div>
         </SpotlightCard>
 
@@ -150,7 +194,7 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
                 <GitCommit className="w-5 h-5 text-white" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-white font-mono-nums">{userStats.verifiedRepos}</div>
+          <div className="text-3xl font-bold text-white font-mono-nums">{localStats.verifiedRepos || 0}</div>
           <div className="text-xs text-text-muted mt-1 uppercase tracking-wider font-mono">Verified Repos</div>
         </SpotlightCard>
 
@@ -161,7 +205,7 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
             </div>
           </div>
           <div className="text-3xl font-bold text-white font-mono-nums">
-            {userStats.avgSfia > 0 ? userStats.avgSfia.toFixed(1) : 'N/A'}
+            {localStats.avgSfia > 0 ? localStats.avgSfia : 'N/A'}
           </div>
           <div className="text-xs text-text-muted mt-1 uppercase tracking-wider font-mono">Avg SFIA Level</div>
         </SpotlightCard>
@@ -172,7 +216,7 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
                 <TrendingUp className="w-5 h-5 text-success" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-white font-mono-nums">{userStats.rank}</div>
+          <div className="text-3xl font-bold text-white font-mono-nums">{localStats.rank || 'Beginner'}</div>
           <div className="text-xs text-text-muted mt-1 uppercase tracking-wider font-mono">Global Rank</div>
         </SpotlightCard>
       </div>
@@ -184,18 +228,10 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
           
           {/* Activity Heatmap */}
           <div className="bg-panel border border-border rounded-xl p-6 relative overflow-hidden">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-sm font-mono text-text-muted uppercase tracking-wider flex items-center gap-2">
-                <Activity className="w-4 h-4 text-text-dim" />
-                Verification Activity (Last 30 Days)
-              </h3>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-sm bg-surface" />
-                <span className="text-xs text-text-dim">Low</span>
-                <div className="w-2 h-2 rounded-sm bg-primary" />
-                <span className="text-xs text-text-dim">High</span>
-              </div>
-            </div>
+            <h3 className="text-sm font-mono text-text-muted uppercase tracking-wider mb-6 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-text-dim" />
+              Developer Cadence (Last 30 Days)
+            </h3>
             
             <div className="flex gap-1 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
               {heatmapData.map((day, index) => (
@@ -212,21 +248,22 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
             </div>
           </div>
 
-          {/* Transaction Log */}
+          {/* Analysis History */}
           <div className="bg-panel border border-border rounded-xl overflow-hidden">
             <div className="border-b border-border p-4 flex items-center justify-between bg-surface/30">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Layers className="w-4 h-4 text-text-muted" />
-                Analysis History
+                Audit Trail
               </h3>
-              <span className="text-[10px] bg-surface text-text-dim px-2 py-1 rounded font-mono">
-                {analysisHistory.length} TOTAL
-              </span>
             </div>
             <div className="divide-y divide-border">
               {recentActivity.length > 0 ? (
                 recentActivity.map((item) => (
-                  <div key={item.id} className="p-4 flex items-center justify-between hover:bg-surface/50 transition-colors group cursor-pointer">
+                  <div 
+                    key={item.id} 
+                    onClick={() => item.status === 'success' && onViewCertificate(item.result)}
+                    className="p-4 flex items-center justify-between hover:bg-surface/50 transition-colors group cursor-pointer"
+                  >
                     <div className="flex items-center gap-4 flex-1">
                       <div className={`w-2 h-2 rounded-full ${item.status === 'success' ? 'bg-success shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-error shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
                       <div className="flex-1">
@@ -236,65 +273,48 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <div className={`text-sm font-bold font-mono ${item.amount.includes('+') ? 'text-success' : 'text-error'}`}>
+                        <div className={`text-sm font-bold font-mono ${item.status === 'success' ? 'text-success' : 'text-error'}`}>
                           {item.amount}
                         </div>
                         <div className="text-xs text-text-dim">{item.time}</div>
                       </div>
-                      {item.status === 'success' && (
-                        <button 
-                          onClick={() => onViewCertificate(item.result)}
-                          className="p-2 bg-surface hover:bg-border rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                        >
-                          <Eye className="w-4 h-4 text-primary" />
-                        </button>
-                      )}
+                      <ChevronRight className="w-4 h-4 text-text-dim group-hover:text-primary transition-colors" />
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="p-8 text-center">
+                <div className="p-12 text-center">
                   <Code className="w-12 h-12 text-text-dim mx-auto mb-3" />
-                  <p className="text-text-muted text-sm">No analysis history yet</p>
-                  <button 
-                    onClick={onNewAnalysis}
-                    className="mt-4 text-primary hover:text-yellow-400 text-sm font-medium"
-                  >
-                    Start your first verification →
-                  </button>
+                  <p className="text-text-muted text-sm">No verification data available.</p>
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* RIGHT COLUMN: INSIGHTS & TOPOLOGY */}
+        {/* RIGHT COLUMN: INSIGHTS & LIVE LOGS */}
         <div className="space-y-6">
-           
-           {/* 1. Skill Topology Graph */}
+            
+           {/* Skill Topology */}
            <div className="bg-panel border border-border rounded-xl p-1 overflow-hidden group">
-             <div className="p-4 border-b border-border/50 flex justify-between items-center">
-                <h3 className="text-sm font-mono text-text-muted uppercase tracking-wider">Skill Topology</h3>
+             <div className="p-4 border-b border-border/50 flex justify-between items-center bg-void">
+                <h3 className="text-xs font-mono text-text-muted uppercase tracking-widest">Topology_Map_v2</h3>
                 <Activity className="w-3 h-3 text-primary animate-pulse" />
              </div>
              <SkillGraph />
           </div>
 
-           {/* 2. Opik Quality Dashboard (Agent Diagnostics) */}
-            {analysisHistory.length > 0 && (
-              <div className="bg-panel border border-border rounded-xl p-6">
-                <OpikInsights 
-                  result={analysisHistory[0]} 
-                  onAgentSelect={setSelectedAgent} // Connects the click
-                />
-              </div>
-            )}
+          {/* Opik Diagnostic Widget */}
+          {analysisHistory.length > 0 && (
+            <div className="bg-panel border border-border rounded-xl p-6">
+              <OpikInsights 
+                result={analysisHistory[0]} 
+                onAgentSelect={setSelectedAgent} 
+              />
+            </div>
+          )}
 
-          {/* 3. TRANSPARENT AGENT LOGS (The "Glass Box") */}
-          <AgentTransparentLog 
-            result={analysisHistory[0]} 
-            selectedAgent={selectedAgent} 
-          />
+          
 
         </div>
       </div>
@@ -302,153 +322,49 @@ export default function DashboardPage({ onNewAnalysis, userStats, analysisHistor
   )
 }
 
-// --- NEW COMPONENT: Agent Transparent Log (Fixed Data Mapping) ---
-function AgentTransparentLog({ result, selectedAgent }) {
-  if (!result) return null;
+// --- SUBCOMPONENT: LIVE SSE TRACE ---
+function AgentTransparentLog({ jobId }) {
+  const [liveLogs, setLiveLogs] = useState([]);
 
-  // --- SAFE DATA EXTRACTION ---
-  const repoUrl = result.repo_url || "Unknown Repo";
+  useEffect(() => {
+    if (!jobId) return;
+
+    // Reset logs on job change
+    setLiveLogs([]);
+
+    // SSE Connection to the backend stream
+    const eventSource = new EventSource(`http://localhost:8000/api/stream/${jobId}`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const newLog = JSON.parse(event.data);
+        setLiveLogs((prev) => [newLog, ...prev].slice(0, 50));
+      } catch (err) {
+        console.error("Failed to parse SSE event:", err);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.warn("SSE connection closed or failed.");
+      eventSource.close();
+    };
+
+    return () => eventSource.close();
+  }, [jobId]);
+
   
-  // Scanner Data
-  const filesScanned = result.scan_metrics?.ncrf?.files_scanned || 0;
-  const complexity = result.scan_metrics?.ncrf?.complexity_density 
-    ? result.scan_metrics.ncrf.complexity_density.toFixed(2) 
-    : "0.00";
-  
-  // Grader Data
-  const reasoning = result.sfia_result?.reasoning 
-    ? result.sfia_result.reasoning.slice(0, 100) + "..."
-    : "No reasoning provided by Grader.";
-  const confidence = result.sfia_result?.confidence 
-    ? (result.sfia_result.confidence * 100).toFixed(0) 
-    : "0";
-
-  // Judge Data
-  const judgeRuled = result.sfia_result?.judge_intervened;
-  const judgeMsg = judgeRuled 
-    ? `INTERVENTION: Overruled Grader. ${result.sfia_result?.judge_ruling || ""}`
-    : "Verdict affirmed. No statistical anomaly detected.";
-
-  // Dynamic Thoughts Array
-  const thoughts = [
-    {
-      agent: "validator",
-      status: "success",
-      thought: `Repo ${repoUrl.split('/').slice(-2).join('/')} detected. Size OK. Access granted.`,
-      timestamp: "0ms"
-    },
-    {
-      agent: "scanner",
-      status: filesScanned > 0 ? "success" : "warning",
-      thought: `Tree-sitter parsed ${filesScanned} files. Complexity density: ${complexity}.`,
-      timestamp: "+1.2s"
-    },
-    {
-      agent: "grader",
-      status: confidence > 0 ? "success" : "warning",
-      thought: `Reasoning: "${reasoning}" Confidence: ${confidence}%`,
-      timestamp: "+3.5s"
-    },
-    {
-      agent: "judge", 
-      status: judgeRuled ? "warning" : "success",
-      thought: judgeMsg,
-      timestamp: "+4.1s"
-    },
-    {
-      agent: "auditor",
-      status: result.audit_result?.reality_check_passed ? "success" : "error",
-      thought: result.audit_result?.reality_check_passed 
-        ? "GitHub Actions passing. Code verified functional." 
-        : "GitHub Actions failing or missing. Penalty applied.",
-      timestamp: "+5.0s"
-    }
-  ];
-
-  // Filter if an agent is selected
-  const displayThoughts = selectedAgent 
-    ? thoughts.filter(t => t.agent === selectedAgent)
-    : thoughts;
-
-  return (
-    <div className="bg-void border border-dashed border-border rounded-xl p-6 relative">
-      <div className="absolute top-0 right-0 p-2">
-        <div className="w-1.5 h-1.5 bg-success rounded-full animate-ping" />
-      </div>
-      <div className="flex items-center gap-3 mb-4">
-        <Terminal className="w-5 h-5 text-text-muted" />
-        <h3 className="text-sm font-bold text-white">
-          {selectedAgent ? `${selectedAgent.toUpperCase()} LOGS` : "LIVE AGENT SWARM"}
-        </h3>
-        {selectedAgent && (
-          <button 
-            onClick={() => window.location.reload()} // Quick reset hack or pass a clear handler
-            className="text-[10px] text-primary hover:underline"
-          >
-            (Show All)
-          </button>
-        )}
-      </div>
-      
-      <div className="space-y-4 font-mono text-xs max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-border">
-        {displayThoughts.map((log, i) => (
-          <div 
-            key={i} 
-            className={`relative pl-4 border-l ${
-              selectedAgent === log.agent ? 'border-primary bg-primary/5 -ml-2 p-2 rounded-r' : 'border-border'
-            } transition-all duration-300`}
-          >
-            <div className="flex justify-between text-text-dim mb-1">
-              <span className={`uppercase font-bold tracking-wider ${selectedAgent === log.agent ? 'text-primary' : ''}`}>
-                {log.agent}
-              </span>
-              <span>{log.timestamp}</span>
-            </div>
-            <div className={`text-sm ${log.status === 'warning' ? 'text-primary' : log.status === 'error' ? 'text-error' : 'text-text-muted'}`}>
-              {log.thought}
-            </div>
-            {selectedAgent === log.agent && (
-              <div className="absolute left-0 top-1/2 -translate-x-[5px] -translate-y-1/2 w-2.5 h-2.5 bg-primary rounded-full" />
-            )}
-          </div>
-        ))}
-      </div>
-      
-      <div className="flex justify-between pt-3 border-t border-border mt-4 text-xs text-text-dim">
-        <span className="flex items-center gap-2">
-          TRACE ID: {result.opik_trace_id ? result.opik_trace_id.slice(0, 8) : 'LOCAL'}
-          <button 
-            onClick={() => navigator.clipboard.writeText(result.opik_trace_id)}
-            className="hover:text-white"
-          >
-            <Copy className="w-3 h-3" />
-          </button>
-        </span>
-        <span className="text-primary">ENCRYPTED</span>
-      </div>
-    </div>
-  )
 }
 
-// Helper function
+// --- UTILS ---
 function getTimeAgo(timestamp) {
-  if (!timestamp) return 'Unknown'
-  let past;
-  try {
-      past = new Date(timestamp);
-      if(isNaN(past.getTime())) throw new Error("Invalid");
-  } catch (e) {
-      return "Unknown";
-  }
+  if (!timestamp) return '...'
+  const past = new Date(timestamp)
+  if (isNaN(past.getTime())) return 'Recently'
   const now = new Date()
   const diffMs = now - past
   const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
   if (diffMins < 1) return 'Just now'
   if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
+  if (diffMins < 1440) return `${Math.floor(diffMins/60)}h ago`
   return past.toLocaleDateString()
 }

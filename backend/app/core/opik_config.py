@@ -4,31 +4,30 @@ from opik import Opik
 from functools import wraps
 from app.core.config import settings
 
-# CORRECT: Dynamic reference to settings, not a hardcoded string
-MAIN_PROJECT = settings.OPIK_PROJECT_NAME 
+MAIN_PROJECT = settings.OPIK_PROJECT_NAME
 
-PROJECTS = {
-    "main": MAIN_PROJECT,
-    "eval": MAIN_PROJECT,
-    "optimizer": MAIN_PROJECT
-}
 
 class OpikManager:
-    _instances = {}
-    
+    _instance = None
+
     @classmethod
-    def get_client(cls, project: str = None) -> Opik:
-        # Default to the configured main project
-        target_project = project or MAIN_PROJECT
-        
-        if target_project not in cls._instances:
-            cls._instances[target_project] = Opik(
-                project_name=target_project,
+    def get_client(cls, project_name: str = MAIN_PROJECT) -> opik.Opik:
+        """
+        Returns a singleton Opik client.
+        """
+        if cls._instance is None:
+            print(f"🔌 Initializing Opik Client for project: {project_name}")
+            
+            # ✅ CORRECT for Opik 0.1.96: Use 'host' parameter
+            cls._instance = opik.Opik(
+                project_name=project_name,
                 api_key=settings.OPIK_API_KEY,
-                workspace=settings.OPIK_WORKSPACE
+                workspace=settings.OPIK_WORKSPACE,
+                host="https://www.comet.com/opik/api"  # ← CORRECT parameter name
             )
-        
-        return cls._instances[target_project]
+            
+        return cls._instance
+
 
 def track_agent(
     name: str,
@@ -36,24 +35,17 @@ def track_agent(
     project: str = None,
     tags: list = None
 ):
-    """
-    Decorator that explicitly passes the project name from settings.
-    This prevents Opik from falling back to 'Default Project'.
-    """
+    """Decorator that tracks agent execution"""
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # 1. Resolve project from settings if not provided
             target_project = project or MAIN_PROJECT
-            
-            # 2. Ensure client is initialized
             OpikManager.get_client(target_project)
             
-            # 3. Explicitly pass project_name to the native tracker
             tracked_func = opik.track(
                 name=name,
                 type=agent_type,
-                project_name=target_project, # <--- The Fix: Explicit passing
+                project_name=target_project,
                 tags=tags or []
             )(func)
             
@@ -63,7 +55,7 @@ def track_agent(
         return wrapper
     return decorator
 
-# Helpers remain the same, but now use the dynamic MAIN_PROJECT
+
 def log_to_main_project(name: str, input_data: dict, output_data: dict, metadata: dict = None):
     client = OpikManager.get_client(MAIN_PROJECT)
     client.trace(
@@ -73,6 +65,7 @@ def log_to_main_project(name: str, input_data: dict, output_data: dict, metadata
         tags=["production", "main"],
         metadata=metadata or {}
     )
+
 
 def log_evaluation_trace(name: str, input_data: dict, output_data: dict, metrics: dict):
     client = OpikManager.get_client(MAIN_PROJECT)

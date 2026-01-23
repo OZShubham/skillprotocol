@@ -1,85 +1,77 @@
 """
 API Routes - FIXED VERSION
-Now properly surfaces validation errors and handles private repos
+Fixes certificate 404 errors by properly mapping both Job ID and Trace ID
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from pydantic import BaseModel, HttpUrl, validator
-from typing import Optional
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, validator
+from typing import Optional, List, Dict, Any
 import uuid
+import logging
+import json
+import asyncio
+from datetime import datetime
 
-from sqlalchemy import select, desc
-from app.models.database import get_db, Repository, CreditLedger
-from fastapi import Depends
+from sqlalchemy import select, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# App Imports
+from app.models.database import get_db, Repository
 from app.agents.graph import run_analysis, get_analysis_status
-from pydantic import BaseModel
+from app.core.opik_config import OpikManager, MAIN_PROJECT
+from app.core.config import settings
 from opik import track, opik_context
 
+from fastapi.responses import StreamingResponse
+import asyncio
 
+# Add this import at the top
+from app.utils.sse import live_log_queues
+
+# Initialize Router & Logger
 router = APIRouter()
-
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS
 # ============================================================================
 
 class FeedbackRequest(BaseModel):
-    job_id: str # This maps to the trace/thread ID
-    score: int # 1 for Thumbs Up, 0 for Thumbs Down
+    job_id: str
+    score: int
     comment: Optional[str] = None
 
 class AnalyzeRequest(BaseModel):
-    """Request body for /analyze endpoint"""
-    repo_url: str  # Changed from HttpUrl to allow validation
+    repo_url: str
     user_id: Optional[str] = "anonymous"
     github_token: Optional[str] = None
     
     @validator('repo_url')
     def validate_repo_url(cls, v):
-        """Basic validation before sending to agent"""
         if not v or not v.strip():
             raise ValueError("Repository URL is required")
-        
-        # Allow both with/without https
         v = v.strip()
         if not ('github.com' in v):
             raise ValueError("Only GitHub repositories are supported")
-        
         return v
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "repo_url": "https://github.com/fastapi/fastapi",
-                "user_id": "user-123",
-                "github_token": "ghp_xxxxx (optional, for private repos)"
-            }
-        }
-
 
 class AnalyzeResponse(BaseModel):
-    """Response from /analyze endpoint"""
     job_id: str
     status: str
     message: str
     estimated_time_seconds: int = 60
 
-
 class StatusResponse(BaseModel):
-    """Response from /status endpoint"""
     job_id: str
     status: str
     current_step: Optional[str] = None
     progress: int
     errors: list[str] = []
     final_credits: Optional[float] = None
-    validation: Optional[dict] = None  # NEW: Include validation for error details
-
+    validation: Optional[dict] = None
 
 class ResultResponse(BaseModel):
-    """Response from /result endpoint"""
     job_id: str
     repo_url: str
     final_credits: float
@@ -92,44 +84,45 @@ class ResultResponse(BaseModel):
     errors: list[str] = []
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
-    sfia_result: Optional[dict] = None       # To pass confidence & reasoning
-    validation_result: Optional[dict] = None # To pass Bayesian stats
-
+    sfia_result: Optional[dict] = None
+    validation_result: Optional[dict] = None
 
 # ============================================================================
 # IN-MEMORY STORAGE
 # ============================================================================
-
 analysis_jobs = {}
 
-
 # ============================================================================
-# ENDPOINT 1: START ANALYSIS (FIXED)
+# ENDPOINT 1: START ANALYSIS
 # ============================================================================
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-@track(name="API: Start Analysis") # <--- 2. Add this decorator
+@track(name="API: Start Analysis", project_name=MAIN_PROJECT)
 async def analyze_repository(
     request: AnalyzeRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db) 
+    db: AsyncSession = Depends(get_db)
 ):
-    """
-    Start a new repository analysis.
-
-    """
-    
-    # Generate unique job ID
     job_id = str(uuid.uuid4())
-    opik_context.update_current_trace(
-        thread_id=job_id, 
-        tags=["api-entrypoint", "hackathon-demo"]
-    )
     
-    # Store initial job info
-    # Store initial job info
-    analysis_jobs[job_id] = {
+    trace_id = None
+    try:
+        opik_context.update_current_trace(
+            tags=["api-entrypoint", "production"],
+            metadata={
+                "job_id": job_id,
+                "user_id": request.user_id,
+                "repo": request.repo_url
+            }
+        )
+        current_trace = opik_context.get_current_trace_context()
+        trace_id = current_trace.trace_id if current_trace else None
+    except Exception as e:
+        logger.warning(f"Could not update Opik context: {e}")
+    
+    job_data = {
         "job_id": job_id,
+        "opik_trace_id": trace_id,
         "repo_url": request.repo_url,
         "user_id": request.user_id,
         "status": "queued",
@@ -138,10 +131,13 @@ async def analyze_repository(
         "errors": []
     }
     
-    # Run analysis in background
+    # ✅ FIX: Store under BOTH job_id AND trace_id
+    analysis_jobs[job_id] = job_data
+    if trace_id:
+        analysis_jobs[trace_id] = job_data
+    
     async def run_in_background():
         try:
-            # Run the LangGraph workflow
             final_state = await run_analysis(
                 repo_url=request.repo_url,
                 user_id=request.user_id,
@@ -149,22 +145,31 @@ async def analyze_repository(
                 user_github_token=request.github_token
             )
             
-            # Check if validation failed
+            # ✅ FIX: Update trace_id mapping if it changed
+            new_trace_id = final_state.get("opik_trace_id")
+            if new_trace_id and new_trace_id != trace_id:
+                analysis_jobs[new_trace_id] = job_data
+            
             if final_state.get("should_skip"):
-                analysis_jobs[job_id]["status"] = "failed"
-                analysis_jobs[job_id]["validation"] = final_state.get("validation")
-                analysis_jobs[job_id]["errors"] = final_state.get("errors", [])
-                analysis_jobs[job_id]["skip_reason"] = final_state.get("skip_reason")
+                job_data.update({
+                    "status": "failed",
+                    "validation": final_state.get("validation"),
+                    "errors": final_state.get("errors", []),
+                    "skip_reason": final_state.get("skip_reason")
+                })
             else:
-                # Success
-                analysis_jobs[job_id]["status"] = "complete"
-                analysis_jobs[job_id]["result"] = final_state
+                job_data.update({
+                    "status": "complete",
+                    "result": final_state
+                })
             
         except Exception as e:
-            print(f"❌ Analysis failed: {str(e)}")
-            analysis_jobs[job_id]["status"] = "error"
-            analysis_jobs[job_id]["error"] = str(e)
-            analysis_jobs[job_id]["errors"] = [str(e)]
+            logger.error(f"❌ Analysis failed: {str(e)}")
+            job_data.update({
+                "status": "error",
+                "error": str(e),
+                "errors": [str(e)]
+            })
     
     background_tasks.add_task(run_in_background)
     
@@ -175,227 +180,206 @@ async def analyze_repository(
         estimated_time_seconds=60
     )
 
-
 # ============================================================================
-# ENDPOINT 2: CHECK STATUS (FIXED)
+# ENDPOINT 2: CHECK STATUS
 # ============================================================================
 
 @router.get("/status/{job_id}", response_model=StatusResponse)
 async def get_status(job_id: str):
-    """
-    Get the current status of an analysis job.
-    
-    FIXED:
-    - Returns validation errors properly
-    - Distinguishes between "failed" and "error"
-    """
-    
     if job_id not in analysis_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     
     job = analysis_jobs[job_id]
     
-    # Handle validation failure
     if job["status"] == "failed":
         return StatusResponse(
-            job_id=job_id,
-            status="failed",
-            progress=10,  # Stopped at validator
-            errors=job.get("errors", []),
-            validation=job.get("validation")  # Contains error_type
+            job_id=job_id, status="failed", progress=10,
+            errors=job.get("errors", []), validation=job.get("validation")
         )
     
-    # Handle other errors
     if job["status"] == "error":
         return StatusResponse(
-            job_id=job_id,
-            status="error",
-            progress=0,
+            job_id=job_id, status="error", progress=0,
             errors=[job.get("error", "Unknown error")]
         )
     
-    # Job complete
     if job["status"] == "complete":
         result = job.get("result", {})
         return StatusResponse(
-            job_id=job_id,
-            status="complete",
-            current_step="complete",
-            progress=100,
-            errors=result.get("errors", []),
-            final_credits=result.get("final_credits"),
-            validation=result.get("validation")
+            job_id=job_id, status="complete", current_step="complete",
+            progress=100, errors=result.get("errors", []),
+            final_credits=result.get("final_credits"), validation=result.get("validation")
         )
     
-    # Job still running - get live status
     status = await get_analysis_status(job_id)
-    
-    return StatusResponse(
-        job_id=job_id,
-        status=status.get("status", "running"),
-        current_step=status.get("current_step"),
-        progress=status.get("progress", 0),
-        errors=status.get("errors", [])
-    )
-
+    return StatusResponse(job_id=job_id, **status)
 
 # ============================================================================
-# ENDPOINT 3: GET FINAL RESULT (FIXED)
+# ENDPOINT 3: GET FINAL RESULT (FIXED - DUAL LOOKUP)
 # ============================================================================
 
 @router.get("/result/{job_id}", response_model=ResultResponse)
-async def get_result(job_id: str):
+async def get_result(job_id: str, db: AsyncSession = Depends(get_db)):
     """
-    Get the final result of a completed analysis.
-    
-    FIXED:
-    - Only returns results for truly complete jobs
-    - Returns 400 for failed validations
+    ✅ FIXED: Checks both in-memory AND database with dual ID lookup
     """
+    # 1. Check in-memory first
+    if job_id in analysis_jobs:
+        job = analysis_jobs[job_id]
+        if job["status"] == "complete":
+            return _format_state_to_response(job_id, job["repo_url"], job["result"])
     
-    if job_id not in analysis_jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    job = analysis_jobs[job_id]
-    
-    # Check if validation failed
-    if job["status"] == "failed":
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "Validation failed",
-                "validation": job.get("validation"),
-                "errors": job.get("errors", [])
-            }
+    # 2. ✅ FIX: Database lookup with OR condition for both IDs
+    query = select(Repository).where(
+        or_(
+            Repository.id == job_id,
+            Repository.opik_trace_id == job_id,
+            Repository.repo_fingerprint == job_id  # Also check fingerprint
         )
+    ).order_by(desc(Repository.created_at))  # Get most recent if duplicates
     
-    # Check if job errored
-    if job["status"] == "error":
-        raise HTTPException(
-            status_code=500,
-            detail=f"Analysis error: {job.get('error')}"
-        )
-    
-    # Check if job is complete
-    if job["status"] != "complete":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Analysis not complete. Current status: {job['status']}"
-        )
-    
-    result = job.get("result", {})
-    
-    # Extract data with None checks
-    sfia_result = result.get("sfia_result") or {}
-    sfia_level = sfia_result.get("sfia_level") if sfia_result else None
-    sfia_level_name = sfia_result.get("level_name") if sfia_result else None
-    
-    opik_trace_id = result.get("opik_trace_id")
-    opik_trace_url = None
-    if opik_trace_id:
-        from app.core.config import settings
+    result_db = await db.execute(query)
+    record = result_db.scalars().first()
+
+    if record:
         workspace = getattr(settings, 'OPIK_WORKSPACE', 'default')
-        opik_trace_url = f"https://www.comet.com/{workspace}/opik/traces/{opik_trace_id}"
-    
-    return ResultResponse(
-        job_id=job_id,
-        repo_url=job["repo_url"],
-        final_credits=result.get("final_credits", 0.0),
-        sfia_level=sfia_level,
-        sfia_level_name=sfia_level_name,
-        opik_trace_url=opik_trace_url,
-        
-        # Pass the full dictionaries now
-        validation=result.get("validation"),
-        scan_metrics=result.get("scan_metrics"),
-        audit_result=result.get("audit_result"),
-        sfia_result=sfia_result,                 # <--- NEW
-        validation_result=result.get("validation_result"), # <--- NEW
-        
-        errors=result.get("errors", []),
-        started_at=result.get("started_at"),
-        completed_at=result.get("completed_at")
-    )
+        return ResultResponse(
+            job_id=record.id,
+            repo_url=record.repo_url,
+            final_credits=record.final_credits or 0.0,
+            sfia_level=record.sfia_level,
+            sfia_level_name=_get_level_name(record.sfia_level),
+            opik_trace_url=f"https://www.comet.com/{workspace}/opik/traces/{record.opik_trace_id}",
+            validation=record.validation_result,
+            scan_metrics=record.scan_metrics,
+            audit_result=record.audit_result,
+            sfia_result=record.sfia_result,
+            validation_result=record.validation_result,
+            errors=record.errors or [],
+            started_at=record.created_at.isoformat() if record.created_at else None,
+            completed_at=record.analyzed_at.isoformat() if record.analyzed_at else None
+        )
+
+    raise HTTPException(status_code=404, detail=f"Analysis result not found for ID: {job_id}")
+
+# ============================================================================
+# ENDPOINT 4: USER HISTORY
+# ============================================================================
 
 @router.get("/user/{user_id}/history")
 async def get_user_history(user_id: str, db: AsyncSession = Depends(get_db)):
     """
-    Fetch analysis history directly from the database.
+    ✅ FIXED: Fetches from DATABASE (persistent) instead of Opik
     """
-    # Fetch repositories analyzed by this user, ordered by newest first
-    result = await db.execute(
-        select(Repository)
-        .where(Repository.user_id == user_id)
-        .order_by(desc(Repository.created_at))
-    )
-    repos = result.scalars().all()
-    
-    history = []
-    for repo in repos:
-        history.append({
-            "id": repo.repo_fingerprint, # Use fingerprint as ID for frontend consistency
-            "job_id": repo.repo_fingerprint,
-            "repo_url": repo.repo_url,
-            "final_credits": repo.final_credits,
-            "sfia_level": repo.sfia_level,
-            "created_at": repo.created_at.isoformat(),
-            "validation": repo.validation_result,
-            # Add other fields needed for certificate
-            "sfia_level_name": repo.sfia_result.get("level_name") if repo.sfia_result else None,
-            "opik_trace_url": f"https://www.comet.com/skillprotocol/opik/traces/{repo.opik_trace_id}" if repo.opik_trace_id else None
-        })
+    try:
+        query = select(Repository).where(
+            Repository.user_id == user_id
+        ).order_by(desc(Repository.created_at))
         
-    return history
+        result = await db.execute(query)
+        records = result.scalars().all()
+        
+        history = []
+        for record in records:
+            history.append({
+                "id": record.id,
+                "job_id": record.id,
+                "repo_url": record.repo_url,
+                "final_credits": float(record.final_credits or 0),
+                "sfia_level": record.sfia_level or 0,
+                "sfia_level_name": _get_level_name(record.sfia_level),
+                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "opik_trace_url": f"https://www.comet.com/{settings.OPIK_WORKSPACE}/opik/traces/{record.opik_trace_id}" if record.opik_trace_id else None
+            })
+        
+        return history
+        
+    except Exception as e:
+        logger.error(f"History fetch failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-
+# ============================================================================
+# ENDPOINT 5: FEEDBACK
+# ============================================================================
 
 @router.post("/feedback")
 async def log_feedback(request: FeedbackRequest):
-    """
-    Log human feedback directly into Opik to close the optimization loop.
-    """
-    import opik
-    client = opik.Opik()
-    
-    # We use the job_id as the trace identifier (or thread identifier)
-    # Depending on how you logged it, you might need to search for the trace first
-    # But logging to the *Thread* is often safer for chat/agent flows.
-    
-    # Log feedback to the specific trace (the analysis run)
-    # Assuming you stored the opik_trace_id in your DB (which you do in Repository model)
-    
-    # Fetch the trace ID from your DB using job_id if necessary, 
-    # or if you used job_id as the trace's name/id.
-    
-    client.log_traces_feedback_scores([
-        {
-            "id": request.job_id, # Or the specific opik_trace_id from DB
-            "name": "user_satisfaction",
-            "value": float(request.score),
-            "reason": request.comment,
-            "source": "user_feedback"
-        }
-    ])
-    
-    return {"status": "recorded"}
-
+    try:
+        client = OpikManager.get_client(MAIN_PROJECT)
+        client.log_traces_feedback_scores(scores=[{
+            "id": request.job_id, "name": "user_satisfaction",
+            "value": float(request.score), "reason": request.comment or "Feedback"
+        }])
+        return {"status": "recorded"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
-# BONUS: LIST ALL JOBS
+# HELPERS
 # ============================================================================
+
+def _get_level_name(level):
+    mapping = {1: "Follow", 2: "Assist", 3: "Apply", 4: "Enable", 5: "Ensure"}
+    return mapping.get(int(level or 0), "Unknown")
+
+def _format_state_to_response(job_id, repo_url, result):
+    sfia = result.get("sfia_result") or {}
+    workspace = getattr(settings, 'OPIK_WORKSPACE', 'default')
+    return ResultResponse(
+        job_id=job_id, repo_url=repo_url, final_credits=result.get("final_credits", 0.0),
+        sfia_level=sfia.get("sfia_level"), sfia_level_name=sfia.get("level_name"),
+        opik_trace_url=f"https://www.comet.com/{workspace}/opik/traces/{result.get('opik_trace_id', job_id)}",
+        validation=result.get("validation"), scan_metrics=result.get("scan_metrics"),
+        audit_result=result.get("audit_result"), sfia_result=sfia,
+        validation_result=result.get("validation_result"), errors=result.get("errors", []),
+        started_at=result.get("started_at"), completed_at=result.get("completed_at")
+    )
 
 @router.get("/jobs")
 async def list_jobs():
-    """List all analysis jobs"""
-    return {
-        "total_jobs": len(analysis_jobs),
-        "jobs": [
-            {
-                "job_id": job_id,
-                "repo_url": job["repo_url"],
-                "status": job["status"]
-            }
-            for job_id, job in analysis_jobs.items()
-        ]
-    }
+    return {"total_jobs": len(analysis_jobs), "jobs": [{"id": k, "status": v["status"]} for k,v in analysis_jobs.items()]}
+
+# Add this to backend/app/api/routes.py
+
+
+
+# Add this endpoint BEFORE the existing endpoints
+
+@router.get("/stream/{job_id}")
+async def stream_live_logs(job_id: str):
+    """
+    SSE endpoint for streaming live agent logs to frontend
+    """
+    async def event_generator():
+        # Create queue for this job if it doesn't exist
+        if job_id not in live_log_queues:
+            live_log_queues[job_id] = asyncio.Queue()
+        
+        queue = live_log_queues[job_id]
+        
+        try:
+            while True:
+                # Wait for new log with timeout
+                try:
+                    log = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps(log)}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keep-alive ping
+                    yield f": keepalive\n\n"
+        except asyncio.CancelledError:
+            # Client disconnected
+            pass
+        finally:
+            # Cleanup
+            if job_id in live_log_queues:
+                del live_log_queues[job_id]
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )

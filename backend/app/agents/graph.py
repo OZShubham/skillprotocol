@@ -1,13 +1,15 @@
 """
 LangGraph Router - FIXED VERSION
-Properly stops flow when validation fails
+Properly stops flow when validation fails and ensures Thread Grouping in Opik.
 """
-from opik.integrations.langchain import OpikTracer
-from typing import Literal
+from typing import Literal, Dict, Any
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from opik.integrations.langchain import OpikTracer
+
+# App Imports
 from app.core.config import settings
-from app.core.state import AnalysisState
+from app.core.state import AnalysisState, create_initial_state
 from app.agents.validator import validate_repository
 from app.agents.scanner import scan_codebase
 from app.agents.grader import grade_sfia_level
@@ -16,16 +18,14 @@ from app.agents.reporter import store_and_report
 from app.agents.judge import arbitrate_level
 
 # ============================================================================
-# ROUTING LOGIC (FIXED)
+# ROUTING LOGIC
 # ============================================================================
 
 def should_proceed_to_scanner(state: AnalysisState) -> Literal["scanner", "reporter"]:
     """
     Decision after validation: Should we clone and scan?
-    
-    FIXED: Checks both should_skip AND validation.is_valid
+    Checks both should_skip AND validation.is_valid
     """
-    
     # Check skip flag
     if state.get("should_skip", False):
         print(f"⏭️  [Router] Skipping analysis: {state.get('skip_reason')}")
@@ -50,7 +50,6 @@ def should_proceed_to_grader(state: AnalysisState) -> Literal["grader", "reporte
     """
     Decision after scanning: Did we get enough data to grade?
     """
-    
     scan_metrics = state.get("scan_metrics")
     if not scan_metrics:
         print("⏭️  [Router] No scan metrics, skipping to reporter")
@@ -75,12 +74,13 @@ def should_retry_grader(state: AnalysisState) -> Literal["grader", "judge"]:
     """
     sfia_result = state.get("sfia_result")
     if not sfia_result:
-        return "judge" # Always go to judge even on failure (Judge will handle empty state)
+        # Always go to judge even on failure (Judge will handle empty state)
+        return "judge" 
     
     confidence = sfia_result.get("confidence", 1.0)
     retry_count = sfia_result.get("retry_count", 0)
     
-    # Retry logic remains, but success ALWAYS goes to Judge
+    # Retry logic: If confidence is low and we haven't retried yet
     if confidence < 0.7 and retry_count == 0:
         print(f"🔄 [Router] Low confidence ({confidence:.2f}), retrying grader")
         state["sfia_result"]["retry_count"] = 1
@@ -88,9 +88,6 @@ def should_retry_grader(state: AnalysisState) -> Literal["grader", "judge"]:
     
     print(f"✅ [Router] Grader finished, proceeding to Supreme Court (Judge)")
     return "judge"
-
-
-    
 
 
 # ============================================================================
@@ -106,7 +103,7 @@ def create_analysis_graph():
     workflow.add_node("validator", validate_repository)
     workflow.add_node("scanner", scan_codebase)
     workflow.add_node("grader", grade_sfia_level)
-    workflow.add_node("judge", arbitrate_level)   # <--- Add Judge Node
+    workflow.add_node("judge", arbitrate_level)   # The Supreme Court
     workflow.add_node("auditor", reality_check)
     workflow.add_node("reporter", store_and_report)
     
@@ -139,9 +136,6 @@ def create_analysis_graph():
     # Judge -> Auditor (Standard flow)
     workflow.add_edge("judge", "auditor")
     
-    # Judge -> Auditor
-    
-    
     # Auditor -> Reporter
     workflow.add_edge("auditor", "reporter")
     
@@ -158,7 +152,7 @@ analysis_graph = create_analysis_graph()
 
 
 # ============================================================================
-# EXECUTION INTERFACE
+# EXECUTION INTERFACE (CORRECTED)
 # ============================================================================
 
 async def run_analysis(
@@ -168,10 +162,9 @@ async def run_analysis(
     user_github_token: str = None
 ) -> AnalysisState:
     """
-    High-level function to run the full analysis workflow
+    High-level function to run the full analysis workflow.
+    CORRECTED: Passes thread_id to OpikTracer and LangGraph config.
     """
-    
-    from app.core.state import create_initial_state
     
     print(f"\n{'='*70}")
     print(f"🚀 Starting Analysis")
@@ -180,7 +173,7 @@ async def run_analysis(
     print(f"   User: {user_id}")
     print(f"{'='*70}\n")
     
-    # Create initial state
+    # 1. Create Initial State
     initial_state = create_initial_state(
         repo_url=repo_url,
         user_id=user_id,
@@ -188,6 +181,8 @@ async def run_analysis(
         user_github_token=user_github_token
     )
 
+    # 2. Configure Opik Tracer with Threading
+    # 1.9.96 FIX: project_name must be explicit to avoid Default Project leakage
     opik_tracer = OpikTracer(
         project_name=settings.OPIK_PROJECT_NAME,
         tags=["production", "skill-verification"],
@@ -198,18 +193,20 @@ async def run_analysis(
         }
     )
     
-    # Run workflow
-    # Run workflow
+    # 3. Run Workflow with Explicit Thread ID
+    # This is the magic key that groups all agent steps into one Conversation/Thread
     config = {
         "configurable": {
-            "thread_id": job_id
+            "thread_id": job_id  # <--- Ensures graph state persistence
         },
-        # Inject the tracer here to get the Visual Graph
-        "callbacks": [opik_tracer] 
+        "callbacks": [opik_tracer], # <--- Logs to Opik
+        "metadata": {
+            "opik_thread_id": job_id # 1.9.96 FIX: Ensures Opik groups these spans
+        }
     }
     
     try:
-        # Pass config with callbacks
+        # Ainvoke with config ensures threading works
         final_state = await analysis_graph.ainvoke(initial_state, config)
     except Exception as e:
         print(f"❌ Workflow execution error: {str(e)}")
@@ -246,8 +243,16 @@ async def get_analysis_status(job_id: str) -> dict:
         
         values = state_snapshot.values
         
+        # Determine status
+        status = "running"
+        if not state_snapshot.next and values.get("current_step") == "complete":
+             status = "complete"
+        elif not state_snapshot.next:
+             # Graph ended but maybe not marked complete
+             status = "complete"
+
         return {
-            "status": "running" if state_snapshot.next else "complete",
+            "status": status,
             "current_step": values.get("current_step"),
             "progress": values.get("progress", 0),
             "errors": values.get("errors", []),

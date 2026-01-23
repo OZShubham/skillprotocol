@@ -173,17 +173,17 @@ def create_initial_state(
         current_step="validator",
         progress=0,
         
-        # Agent outputs (all None initially) - **IMPORTANT: Use None, not {}**
+        # Agent outputs - ✅ Use empty dicts to prevent None errors
         validation=None,
         scan_metrics=None,
-        sfia_result=None,  # ← Make sure this is None, not {}
+        sfia_result={},  # ✅ FIXED: Empty dict instead of None
         audit_result=None,
         final_credits=None,
-        validation_result=None, # Initialize as None
+        validation_result={},  # ✅ FIXED: Empty dict instead of None
         
         # Observability
         opik_trace_id=None,
-        errors=[],  # ← Empty list, not None
+        errors=[],
         
         # Metadata
         started_at=datetime.utcnow().isoformat(),
@@ -193,7 +193,6 @@ def create_initial_state(
         should_skip=False,
         skip_reason=None
     )
-
 def get_progress_for_step(step: str) -> int:
     """
     Maps agent step to progress percentage

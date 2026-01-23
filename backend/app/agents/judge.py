@@ -1,13 +1,19 @@
 """
-Judge Agent (Supreme Court - ROBUST & FAIR)
+Judge Agent (Supreme Court) - FIXED
 Deliberates using Syntax, Semantics, Forensics, and History.
+Now fetches the "Constitution" (Prompt) from the Opik Library.
 """
 
 import json
+import logging
 from openai import AsyncOpenAI
+from opik import opik_context
+
 from app.core.config import settings
 from app.core.state import AnalysisState, get_progress_for_step
-from app.core.opik_config import track_agent
+from app.core.opik_config import track_agent, OpikManager, MAIN_PROJECT
+
+logger = logging.getLogger(__name__)
 
 @track_agent(name="Judge Agent", agent_type="llm")
 async def arbitrate_level(state: AnalysisState) -> AnalysisState:
@@ -35,15 +41,13 @@ async def arbitrate_level(state: AnalysisState) -> AnalysisState:
 
     # Extract all evidence layers
     ncrf = scan_metrics.get("ncrf", {})
-    markers = scan_metrics.get("markers", {})
     semantic_report = scan_metrics.get("semantic_report", {}) # Expert Witness
     quality_report = scan_metrics.get("quality_report", {})   # Forensics
     git_stats = scan_metrics.get("git_stats", {})             # Maturity
 
     llm_level = int(sfia_result.get("sfia_level", 0))
     stats_level = int(validation_result.get("bayesian_best_estimate", 0))
-    stats_conf = validation_result.get("confidence", 0.0)
-
+    
     print(f"👨‍⚖️ [Judge Agent] Deliberating Case. Grader: {llm_level} | Stats: {stats_level}")
 
     # 2. Construct the "Deliberation" Case File
@@ -86,74 +90,90 @@ async def arbitrate_level(state: AnalysisState) -> AnalysisState:
         - **One-Shot Push Detected:** {is_one_shot_push}
         """
 
-    case_file_prompt = f"""
+    # 3. Fetch the "Constitution" from Opik Prompt Library (Best Use of Opik)
+    # This allows you to edit the Judge's logic in the UI without redeploying
+    try:
+        client = OpikManager.get_client(MAIN_PROJECT)
+        # Try to fetch, if it doesn't exist, create it (Self-Healing)
+        prompt_obj = client.get_prompt(name="supreme-court-judge-rules")
+        
+        if not prompt_obj:
+            # Fallback / Init
+            base_prompt = """
 You are the Supreme Technical Arbiter for the SkillProtocol Certification Board.
 Your goal is to distinguish between "Skill" (Code Quality) and "Process" (Engineering Maturity).
 
-**CASE # {state.get('job_id', 'UNKNOWN')}**
+**CASE # {{job_id}}**
 
 **The Conflict:**
-* **Assessor A (Grader Agent):** Recommends **Level {llm_level}** ({sfia_result.get('level_name')})
-  * Argument: "{sfia_result.get('reasoning')}"
-  * Confidence: {sfia_result.get('confidence', 0):.1%}
-
-* **Assessor B (Statistical Model):** Suggests **Level {stats_level}**
-  * Reasoning: "{validation_result.get('reasoning')}"
-  * Confidence: {stats_conf:.1%}
+* **Assessor A (Grader Agent):** Recommends **Level {{llm_level}}**
+* **Assessor B (Statistical Model):** Suggests **Level {{stats_level}}**
 
 **The Evidence:**
-1. **Scale:** {ncrf.get('total_sloc')} lines of code. Complexity: {ncrf.get('total_complexity')}.
-2. **Process Maturity (Time):** {maturity_context}
-3. **Forensic Analysis (Patterns):** {quality_forensics}
-4. **Expert Testimony (Semantic Meaning):** {expert_testimony}
+1. **Scale:** {{sloc}} lines of code. Complexity: {{complexity}}.
+2. **Process Maturity:** {{maturity_context}}
+3. **Forensics:** {{quality_forensics}}
+4. **Expert Testimony:** {{expert_testimony}}
 
-**Deliberation Instructions (STRICT & FAIR):**
+**Deliberation Instructions:**
 
-1. **The "Lone Wolf" Fairness Rule:**
-   - If the Code Quality is HIGH (Semantic Score > 7, Good Forensics), but it is a "One-Shot Push" (1-2 commits), do NOT punish the user to Level 1.
-   - **Ruling:** Acknowledge the coding skill. You may award up to **Level 3 (Apply)**.
-   - **Restriction:** Do NOT award Level 4 (Enable) or 5 (Ensure). These levels *require* proven lifecycle management (CI/CD, history, iterative maintenance) which is missing here.
+1. **The "Lone Wolf" Rule:**
+   - If Code Quality is HIGH but it is a "One-Shot Push" (<3 commits), CAP at Level 3.
+   - Do NOT award Level 4/5 without proven lifecycle management.
 
 2. **The "Code Dump" Check:**
-   - If code is complex but Semantic Review says "Generic logic" or "Unrelated files", AND it's a One-Shot Push, this is likely a copy-paste dump. Downgrade to **Level 1** or **Level 2**.
+   - If code is complex but looks like a generic dump, Downgrade to Level 1.
 
-3. **Level 5 Requirement:**
-   - To verify Level 5 (Ensure), you need High Code Quality AND Proven Process (History > 1 week, CI/CD, Tests). Missing any of these caps the score at Level 4.
-
-4. **Resolve the Conflict:**
-   - Use the Expert Testimony to break ties. If the LLM Reviewer loves the code, lean towards the Grader's score (subject to the Maturity Cap).
+3. **Resolve the Conflict:**
+   - Use Expert Testimony to break ties.
 
 **Respond ONLY with valid JSON:**
 {{
-  "deliberation": "Explain your decision. Explicitly mention if you capped the score due to lack of history.",
+  "deliberation": "Explain your decision.",
   "final_level": <int>,
   "judge_ruling": "Definitive verdict statement.",
-  "overruled_grader": <boolean>,
-  "overruled_stats": <boolean>
+  "overruled_grader": <boolean>
 }}
-"""
+            """
+            prompt_obj = client.create_prompt(name="supreme-court-judge-rules", prompt=base_prompt)
+            print("🆕 Created 'supreme-court-judge-rules' prompt in library")
+            
+        # Use the prompt text
+        system_prompt = prompt_obj.prompt
+        
+    except Exception as e:
+        print(f"⚠️ Prompt Library Error: {e}. Using fallback.")
+        system_prompt = "You are a Judge. Resolve the conflict between Level {{llm_level}} and {{stats_level}}."
 
-    # 3. Call the Judge LLM
-    client = AsyncOpenAI(
-        api_key=settings.GROQ_API_KEY, 
-        base_url=settings.LLM_BASE_URL
-    )
+    # 4. Format the Prompt
+    # Using simple replacement for robustness
+    formatted_prompt = system_prompt.replace("{{llm_level}}", str(llm_level))\
+                                    .replace("{{stats_level}}", str(stats_level))\
+                                    .replace("{{sloc}}", str(ncrf.get("total_sloc")))\
+                                    .replace("{{complexity}}", str(ncrf.get("total_complexity")))\
+                                    .replace("{{job_id}}", str(state.get("job_id")))\
+                                    .replace("{{maturity_context}}", maturity_context)\
+                                    .replace("{{quality_forensics}}", quality_forensics)\
+                                    .replace("{{expert_testimony}}", expert_testimony)
+
+    # 5. Call the Judge LLM
+    client_llm = AsyncOpenAI(api_key=settings.GROQ_API_KEY, base_url=settings.LLM_BASE_URL)
 
     try:
-        response = await client.chat.completions.create(
+        response = await client_llm.chat.completions.create(
             model=settings.LLM_MODEL,
             messages=[
                 {"role": "system", "content": "You are a fair, wise, and highly technical judge."},
-                {"role": "user", "content": case_file_prompt}
+                {"role": "user", "content": formatted_prompt}
             ],
-            temperature=0.2, 
+            temperature=0.2, # Low temp for consistent verdicts
             response_format={"type": "json_object"}
         )
 
         verdict_json = response.choices[0].message.content
         verdict = json.loads(verdict_json)
 
-        # 4. Execute Judgment
+        # 6. Execute Judgment
         final_level = int(verdict.get("final_level", llm_level))
         ruling = verdict.get("judge_ruling", "Verdict affirmed.")
         deliberation = verdict.get("deliberation", "")
@@ -161,7 +181,16 @@ Your goal is to distinguish between "Skill" (Code Quality) and "Process" (Engine
         print(f"👨‍⚖️ [Judge Agent] VERDICT REACHED: Level {final_level}")
         print(f"   💭 Reasoning: {deliberation[:100]}...")
         
-        # 5. Update State with the Final Verdict
+        # 7. Log to Opik (Best Use of Opik)
+        opik_context.update_current_trace(
+            metadata={
+                "judge_deliberation": deliberation,
+                "judge_verdict": final_level,
+                "overruled_grader": verdict.get("overruled_grader", False)
+            }
+        )
+        
+        # 8. Update State with the Final Verdict
         state["sfia_result"]["sfia_level"] = final_level
         state["sfia_result"]["level_name"] = _get_level_name(final_level)
         state["sfia_result"]["reasoning"] = ruling
