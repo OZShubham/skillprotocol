@@ -170,7 +170,6 @@ async def save_analysis_result(state: dict):
             commit_hash = ncrf_data.get("repo_fingerprint", state.get("job_id"))
 
             # --- DEDUPLICATION CHECK ---
-            # Check if this EXACT commit has already been rewarded
             existing = await session.execute(
                 select(Repository)
                 .where(Repository.repo_fingerprint == commit_hash)
@@ -190,6 +189,10 @@ async def save_analysis_result(state: dict):
                 existing_record.errors = state.get("errors", [])
                 existing_record.updated_at = datetime.utcnow()
                 
+                # ✅ ADD: Update quality metrics too
+                existing_record.quality_metrics = state.get("scan_metrics", {}).get("quality_report")
+                existing_record.validation_metrics = state.get("validation_result")
+                
                 # DON'T change final_credits if already awarded
                 if existing_record.final_credits == 0.0 and final_credits > 0:
                     print(f"✅ Updating credits: 0 -> {final_credits}")
@@ -204,6 +207,7 @@ async def save_analysis_result(state: dict):
             # No duplicate - create NEW record
             print(f"✅ New commit {commit_hash[:7]}, creating record")
             
+            # ✅ FIXED: Add quality_metrics and validation_metrics
             repo = Repository(
                 repo_url=repo_url,
                 repo_fingerprint=commit_hash,
@@ -217,7 +221,9 @@ async def save_analysis_result(state: dict):
                 sfia_result=sfia_result if sfia_result else None,
                 audit_result=state.get("audit_result"),
                 opik_trace_id=state.get("opik_trace_id"),
-                errors=state.get("errors", [])
+                errors=state.get("errors", []),
+                quality_metrics=state.get("scan_metrics", {}).get("quality_report"),  # ✅ NEW
+                validation_metrics=state.get("validation_result")  # ✅ NEW
             )
             
             session.add(repo)
@@ -244,6 +250,7 @@ async def save_analysis_result(state: dict):
             print(f"❌ Database save failed: {str(e)}")
             # Don't re-raise - allow analysis to complete
 
+            
 async def get_user_total_credits(user_id: str) -> float:
     """Get total credits for a user"""
     async with async_session() as session:

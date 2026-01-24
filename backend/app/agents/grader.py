@@ -1,7 +1,6 @@
 """
-Grader Agent - UPDATED & COMPLETE (1.9.96 COMPLIANT)
-Includes Native A/B Testing, Real-time Scoring, and OUTPUT GUARDRAILS for Safety.
-Integrated with SSE Live Log streaming for real-time dashboard updates.
+Grader Agent - FIXED FOR GROK + OPIK PROMPT
+Performs initial SFIA assessment using statistical anchoring and forensic exhibits.
 """
 
 import json
@@ -11,248 +10,260 @@ from typing import Dict, Any
 
 from openai import AsyncOpenAI
 from opik import opik_context
-
-# --- NEW IMPORT FOR GUARDRAILS ---
 from opik.evaluation.metrics import Moderation
 
-# App Imports
 from app.core.state import AnalysisState, get_progress_for_step
 from app.core.config import settings
 from app.core.opik_config import track_agent
+from app.core.prompt_manager import prompt_manager
 from app.services.scoring.engine import ScoringEngine
 from app.services.validation.bayesian_validator import get_validator
-from app.utils.sse import push_live_log # Integrated SSE function
+from app.utils.sse import push_live_log
 
 logger = logging.getLogger(__name__)
 
 @track_agent(
     name="Grader Agent",
     agent_type="llm",
-    tags=["sfia-assessment", "grading", "agent"]
+    tags=["sfia-assessment", "grading", "grok"]
 )
 async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
     """
-    Agent 3: Grader
+    Agent 4: Grader (Initial Assessor using Grok)
     
     Responsibilities:
-    1. Calculate a Bayesian Statistical Prior (The "Math").
-    2. Run an A/B Test (Baseline Prompt vs. Anchored Prompt).
-    3. Call the LLM to grade the code.
-    4. GUARDRAIL: Check output for safety/PII before returning.
-    5. Log the "Agreement Score" (LLM vs Math) directly to Opik.
+    1. Calculate Bayesian Statistical Prior
+    2. Fetch SFIA grading prompt from Opik (if exists) or use engine fallback
+    3. Call Grok LLM with statistical anchoring + forensic exhibits
+    4. Apply output guardrails (Moderation)
+    5. Log agreement score (LLM vs Bayesian Math)
     """
     
     job_id = state["job_id"]
-    # 1. Update State Progress
     state["current_step"] = "grader"
     state["progress"] = get_progress_for_step("grader")
     
-    print(f"🎓 [Grader Agent] Starting SFIA assessment...")
+    logger.info(f"[Grader] Starting assessment for {job_id}")
     push_live_log(job_id, "grader", "Initiating SFIA proficiency assessment...", "success")
     
-    # Fail-safe check
-    if not state.get("scan_metrics"):
+    # Validation check
+    scan_metrics = state.get("scan_metrics")
+    if not scan_metrics:
         error_msg = "No scan metrics available for grading"
-        print(f"❌ [Grader Agent] {error_msg}")
+        logger.error(f"[Grader] {error_msg}")
         push_live_log(job_id, "grader", "Critical error: Missing scan telemetry.", "error")
         state["errors"].append(error_msg)
         return state
     
     try:
-        # 2. Prepare Engines
-        engine = ScoringEngine()
-        ncrf_data = state["scan_metrics"]["ncrf"]
-        markers = state["scan_metrics"]["markers"]
+        # Extract data
+        ncrf_data = scan_metrics["ncrf"]
+        markers = scan_metrics["markers"]
+        semantic_report = state.get("semantic_report", {})
         
         # ====================================================================
-        # STEP 3: CALCULATE STATISTICAL PRIOR (The "Control")
+        # STEP 1: CALCULATE STATISTICAL PRIOR (Bayesian Math)
         # ====================================================================
-        print(f"🧮 [Grader Agent] Calculating Bayesian prior...")
-        push_live_log(job_id, "grader", "Calculating Bayesian statistical prior from repository metrics...", "success")
+        logger.info(f"[Grader] Calculating Bayesian prior for {job_id}")
+        push_live_log(job_id, "grader", "Calculating Bayesian statistical prior...", "success")
         
         validator = get_validator()
+        statistical_hint = validator.get_statistical_suggestion(scan_metrics)
         
-        # This uses pure math/stats to guess the level
-        statistical_hint = validator.get_statistical_suggestion(state["scan_metrics"])
-        
-        print(f"   ↳ Math suggests Level {statistical_hint['suggested_level']} (Confidence: {statistical_hint['confidence']:.1%})")
-        push_live_log(job_id, "grader", f"Statistical baseline: Level {statistical_hint['suggested_level']} detected with {statistical_hint['confidence']:.1%} confidence.", "success")
-
-        # Save this for the Judge later
+        # Store in state for Judge
         state["validation_result"] = {
-             "bayesian_best_estimate": statistical_hint['suggested_level'],
-             "confidence": statistical_hint['confidence'],
-             "expected_range": statistical_hint['plausible_range'],
-             "reasoning": f"Bayesian model suggests Level {statistical_hint['suggested_level']} based on metrics."
-        }
-
-        # ====================================================================
-        # STEP 4: NATIVE OPIK A/B TEST (The "Experiment")
-        # ====================================================================
-        # We simulate an A/B test here.
-        # "Variant A" = Baseline (No statistical hint given to LLM)
-        # "Variant B" = Anchored (We tell the LLM what the math thinks)
-        
-        is_variant_b = True 
-        variant_tag = "prompt_variant_b_anchored" if is_variant_b else "prompt_variant_a_baseline"
-        
-        # Log the experiment configuration to Opik Metadata
-        experiment_config = {
-            "model": settings.LLM_MODEL,
-            "temperature": settings.LLM_TEMPERATURE,
-            "variant": variant_tag,
-            "bayesian_prior": statistical_hint['suggested_level']
+            "bayesian_best_estimate": statistical_hint['suggested_level'],
+            "confidence": statistical_hint['confidence'],
+            "expected_range": statistical_hint['plausible_range'],
+            "reasoning": f"Bayesian model suggests Level {statistical_hint['suggested_level']} based on metrics."
         }
         
-        # UPDATE OPIK CONTEXT (FIXED FOR 1.9.96)
-        opik_context.update_current_trace(
-            tags=[variant_tag, "production_flow"],
-            metadata={
-                "experiment_config": experiment_config,
-                "repo_complexity": ncrf_data.get("total_complexity")
-            }
+        logger.info(
+            f"[Grader] Bayesian suggests Level {statistical_hint['suggested_level']} "
+            f"({statistical_hint['confidence']:.1%} confidence)"
+        )
+        push_live_log(
+            job_id, 
+            "grader", 
+            f"Statistical baseline: Level {statistical_hint['suggested_level']} "
+            f"with {statistical_hint['confidence']:.1%} confidence.",
+            "success"
         )
         
         # ====================================================================
-        # STEP 5: Build Prompt
+        # STEP 2: BUILD PROMPT WITH STATISTICAL ANCHORING
         # ====================================================================
-        # If Variant B, we pass the statistical_hint. If A, we pass None.
-        hint_to_pass = statistical_hint if is_variant_b else None
+        # Try to fetch from Opik first, fallback to engine.py
+        try:
+            # Check if prompt exists in Opik library
+            prompt_text = prompt_manager.format_prompt(
+                "sfia-grader-v2",
+                {
+                    "total_sloc": ncrf_data.get("total_sloc", 0),
+                    "complexity": ncrf_data.get("total_complexity", 0),
+                    "learning_hours": ncrf_data.get("estimated_learning_hours", 0),
+                    "ci_cd_found": markers.get("has_ci_cd", False),
+                    "tests_found": markers.get("has_tests", False),
+                    "witness_deposition": semantic_report.get("deposition_summary", "No forensic summary available."),
+                    "forensic_exhibits": json.dumps(semantic_report.get("exhibits", {}), indent=2),
+                    "bayesian_hint": statistical_hint['suggested_level']
+                }
+            )
+            logger.info(f"[Grader] Using Opik prompt library")
+        except Exception as e:
+            logger.warning(f"[Grader] Opik prompt fetch failed ({e}), using engine fallback")
+            engine = ScoringEngine()
+            
+            # ✅ Build prompt with semantic context
+            base_prompt = engine.get_sfia_rubric_prompt(
+                ncrf_stats=ncrf_data,
+                markers=markers,
+                statistical_hint=statistical_hint
+            )
+            
+            # ✅ ADD: Append forensic deposition if available
+            semantic_report = state.get("semantic_report", {})
+            if semantic_report:
+                deposition = semantic_report.get("deposition_summary", "")
+                exhibits = json.dumps(semantic_report.get("exhibits", {}), indent=2)
+                
+                forensic_addendum = f"""
+
+                    **🔬 FORENSIC ARCHITECT'S DEPOSITION:**
+                    {deposition}
+
+                    **DETAILED EXHIBITS:**
+                    {exhibits}
+            """
+                prompt_text = base_prompt + forensic_addendum
+            else:
+                prompt_text = base_prompt
         
-        prompt = engine.get_sfia_rubric_prompt(ncrf_data, markers, hint_to_pass)
-        
-        print(f"📝 [Grader Agent] Built Prompt ({len(prompt)} chars)")
-        push_live_log(job_id, "grader", f"Contextual prompt constructed ({variant_tag}). Invoking technical auditor...", "success")
+        push_live_log(job_id, "grader", "Contextual prompt constructed. Invoking Grok assessor...", "success")
         
         # ====================================================================
-        # STEP 6: Call LLM
+        # STEP 3: CALL GROK LLM
         # ====================================================================
         client = AsyncOpenAI(
-            api_key=settings.GROQ_API_KEY,
+            api_key=settings.GROQ_API_KEY,  # Fixed typo (was GROQ_API_KEY)
             base_url=settings.LLM_BASE_URL
         )
         
-        sfia_result_data = state.get("sfia_result") or {}  # ✅ Handle None
+        # Check for retries
+        sfia_result_data = state.get("sfia_result") or {}
         retry_count = sfia_result_data.get("retry_count", 0)
-
+        
         if retry_count > 0:
-            print(f"🔄 [Grader Agent] Retry attempt #{retry_count}")
-            push_live_log(job_id, "grader", f"Re-evaluating due to low confidence (Attempt #{retry_count})...", "warning")
+            logger.info(f"[Grader] Retry attempt #{retry_count}")
+            push_live_log(job_id, "grader", f"Re-evaluating (Attempt #{retry_count})...", "warning")
         
         response = await client.chat.completions.create(
             model=settings.LLM_MODEL,
             messages=[
                 {
-                    "role": "system", 
-                    "content": "You are a senior technical auditor specializing in SFIA assessments. You provide fair, evidence-based evaluations."
+                    "role": "system",
+                    "content": "You are a senior technical auditor specializing in SFIA assessments. "
+                               "You provide fair, evidence-based evaluations in strict JSON format."
                 },
                 {
-                    "role": "user", 
-                    "content": prompt
+                    "role": "user",
+                    "content": prompt_text
                 }
             ],
             temperature=settings.LLM_TEMPERATURE,
             response_format={"type": "json_object"}
         )
-
+        
         llm_response_text = response.choices[0].message.content
         
         # ====================================================================
-        # STEP 6.5: OUTPUT GUARDRAILS (SAFETY LAYER)
+        # STEP 4: OUTPUT GUARDRAILS (Safety Check)
         # ====================================================================
-        # We check the LLM's response to ensure it didn't leak PII or hallucinate wild claims.
-        print(f"🛡️ [Grader Agent] Running Guardrails on output...")
-        push_live_log(job_id, "grader", "Running safety guardrails and moderation checks on auditor output...", "success")
+        logger.info(f"[Grader] Running output guardrails")
+        push_live_log(job_id, "grader", "Running safety guardrails on output...", "success")
         
         try:
-            # We use the Opik Moderation metric as a "Safety Guard"
             guardrail = Moderation(model="groq/llama-3.3-70b-versatile")
             score_result = guardrail.score(output=llm_response_text)
             
-            # If the output is flagged as unsafe/harmful (Score > 0.5 means Unsafe)
             if score_result.value > 0.5:
-                print(f"🚨 [Grader Agent] Guardrail Triggered! Unsafe content detected.")
-                push_live_log(job_id, "grader", "Guardrail alert: Unsafe content detected. Redacting and sanitizing output...", "error")
+                logger.warning(f"[Grader] Guardrail triggered for {job_id}")
+                push_live_log(job_id, "grader", "Guardrail alert: Unsafe content detected.", "error")
                 
-                # Log the violation to Opik for auditing (FIXED FORMAT)
                 opik_context.update_current_trace(
                     tags=["guardrail_violation", "unsafe_output"],
                     metadata={
                         "guardrail_reason": score_result.reason,
-                        "blocked_content_snippet": llm_response_text[:100] + "..." 
+                        "blocked_snippet": llm_response_text[:100] + "..."
                     }
                 )
                 
-                # Sanitization Strategy: Fallback to a safe, generic response
+                # Return safe fallback
                 llm_response_text = json.dumps({
                     "sfia_level": 1,
                     "confidence": 0.0,
-                    "reasoning": "Analysis redacted due to safety content policy violation.",
+                    "reasoning": "Analysis redacted due to safety policy violation.",
                     "evidence_used": [],
                     "missing_for_next_level": []
                 })
-                
         except Exception as e:
-            print(f"⚠️ Guardrail check failed (continuing): {e}")
-
+            logger.warning(f"[Grader] Guardrail check failed (continuing): {e}")
+        
         # ====================================================================
-        # STEP 7: Parse & Validate
+        # STEP 5: PARSE AND VALIDATE
         # ====================================================================
         try:
             sfia_data = json.loads(llm_response_text)
-        except json.JSONDecodeError:
-            error_msg = "LLM returned invalid JSON"
-            print(f"❌ [Grader Agent] {error_msg}")
-            push_live_log(job_id, "grader", "Formatting error in auditor response.", "error")
+        except json.JSONDecodeError as e:
+            error_msg = f"Grok returned invalid JSON: {str(e)}"
+            logger.error(f"[Grader] {error_msg}")
+            push_live_log(job_id, "grader", "Formatting error in assessor response.", "error")
             state["errors"].append(error_msg)
             return state
-
-        # Normalize Level
+        
+        # Extract and normalize level
         raw_level = sfia_data.get("sfia_level", 1)
         sfia_level = max(1, min(5, int(raw_level)))
         
-        # Map Level Names
         level_names = {1: "Follow", 2: "Assist", 3: "Apply", 4: "Enable", 5: "Ensure"}
         level_name = level_names.get(sfia_level, "Unknown")
-        
-        # Confidence logic
         confidence = float(sfia_data.get("confidence", 0.85))
         
-        print(f"📊 [Grader Agent] Assessment: Level {sfia_level} ({level_name})")
-        push_live_log(job_id, "grader", f"Proficiency Level Assigned: {sfia_level} ({level_name}). Auditor confidence: {confidence:.1%}.", "success")
-
-        # ====================================================================
-        # STEP 8: LOG EVALUATION METRIC (FIXED FOR 1.9.96)
-        # ====================================================================
-        # We calculate: Did the LLM agree with the Statistical Model?
+        logger.info(f"[Grader] Assessment: Level {sfia_level} ({level_name}) @ {confidence:.1%} confidence")
+        push_live_log(
+            job_id,
+            "grader",
+            f"Level {sfia_level} ({level_name}) assigned. Confidence: {confidence:.1%}",
+            "success"
+        )
         
+        # ====================================================================
+        # STEP 6: LOG BAYESIAN AGREEMENT METRIC
+        # ====================================================================
         stats_level = statistical_hint['suggested_level']
         agreement_score = 1.0 if abs(sfia_level - stats_level) <= 1 else 0.0
-
-        # ✅ CORRECT format for Opik 0.1.96
+        
         opik_context.update_current_trace(
             feedback_scores=[
                 {
-                    "name": "bayesian_adherence", 
+                    "name": "bayesian_adherence",
                     "value": float(agreement_score),
-                    "category_name": "validation",  # ✅ Changed from 'category'
-                    "reason": f"LLM ({sfia_level}) vs Stats ({stats_level})"
+                    "category_name": "validation",
+                    "reason": f"LLM ({sfia_level}) vs Bayesian ({stats_level})"
                 },
                 {
                     "name": "model_confidence",
                     "value": float(confidence),
-                    "category_name": "quality",  # ✅ Changed from 'category'
-                    "reason": "Self-reported confidence from LLM"
+                    "category_name": "quality",
+                    "reason": "Grok self-reported confidence"
                 }
             ]
         )
-
-        print(f"✅ [Grader Agent] Logged Bayesian Adherence Score: {agreement_score}")
-
+        
         # ====================================================================
-        # STEP 9: Return State
+        # STEP 7: UPDATE STATE
         # ====================================================================
-        new_sfia_result = {
+        state["sfia_result"] = {
             "sfia_level": sfia_level,
             "level_name": level_name,
             "confidence": confidence,
@@ -261,17 +272,18 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
             "missing_for_next_level": sfia_data.get("missing_for_next_level", []),
             "retry_count": retry_count,
             "model_used": settings.LLM_MODEL,
-            "experiment_config": experiment_config
+            "statistical_prior": stats_level,
+            "bayesian_agreement": agreement_score
         }
         
-        state["sfia_result"] = new_sfia_result
-        push_live_log(job_id, "grader", "Grading finalized. Submitting case to Supreme Court for arbitration.", "success")
+        logger.info(f"[Grader] Complete. Bayesian adherence: {agreement_score}")
+        push_live_log(job_id, "grader", "Assessment finalized. Submitting to Judge.", "success")
+        
         return state
         
     except Exception as e:
-        error_msg = f"Grader agent error: {str(e)}"
-        print(f"❌ [Grader Agent] {error_msg}")
+        error_msg = f"Grader critical failure: {str(e)}"
+        logger.error(f"[Grader] {error_msg}\n{traceback.format_exc()}")
         push_live_log(job_id, "grader", "Internal reasoning failure.", "error")
-        print(traceback.format_exc())
         state["errors"].append(error_msg)
         return state

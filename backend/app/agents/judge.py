@@ -1,208 +1,223 @@
 """
-Judge Agent (Supreme Court) - FIXED
-Deliberates using Syntax, Semantics, Forensics, and History.
-Now fetches the "Constitution" (Prompt) from the Opik Library.
+Judge Agent - FIXED FOR GEMINI 3 FLASH + OPIK PROMPT
+The Supreme Court of Engineering - final binding verdict.
 """
 
 import json
 import logging
-from openai import AsyncOpenAI
+from typing import Dict, Any
+
 from opik import opik_context
 
 from app.core.config import settings
 from app.core.state import AnalysisState, get_progress_for_step
-from app.core.opik_config import track_agent, OpikManager, MAIN_PROJECT
+from app.core.opik_config import track_agent
+from app.core.prompt_manager import prompt_manager
+from app.utils.sse import push_live_log
 
 logger = logging.getLogger(__name__)
 
-@track_agent(name="Judge Agent", agent_type="llm")
+@track_agent(name="Judge Agent", agent_type="llm", tags=["final-verdict", "gemini-3", "supreme-court"])
 async def arbitrate_level(state: AnalysisState) -> AnalysisState:
     """
-    Agent 4.5: The Supreme Judge
+    Agent 5: Technical Judge (The Supreme Court)
     
     Responsibilities:
-    1. Review the entire case file (Grader + Stats + Semantics + History).
-    2. Deliberate on conflicts using Chain of Thought.
-    3. Issue a final, binding verdict with detailed justification.
+    1. Reconcile Bayesian Math, Grader verdict, and Reviewer forensics
+    2. Apply the "Congruence Rule" and "Quantum Verification"
+    3. Issue final binding verdict
+    4. Generate justification for certificate
     """
     
+    job_id = state["job_id"]
     state["current_step"] = "judge"
     state["progress"] = get_progress_for_step("judge")
     
-    # 1. Gather Evidence
-    sfia_result = state.get("sfia_result")
-    validation_result = state.get("validation_result")
-    scan_metrics = state.get("scan_metrics", {})
+    logger.info(f"[Judge] Commencing arbitration for {job_id}")
+    push_live_log(job_id, "judge", "Judge impaneling: Reviewing all exhibits...", "success")
     
-    # Fail-safe: If critical data is missing, we cannot judge properly
-    if not sfia_result or not validation_result:
-        print("⚖️ [Judge Agent] Missing assessment data. Skipping review.")
-        return state
-
-    # Extract all evidence layers
-    ncrf = scan_metrics.get("ncrf", {})
-    semantic_report = scan_metrics.get("semantic_report", {}) # Expert Witness
-    quality_report = scan_metrics.get("quality_report", {})   # Forensics
-    git_stats = scan_metrics.get("git_stats", {})             # Maturity
-
-    llm_level = int(sfia_result.get("sfia_level", 0))
-    stats_level = int(validation_result.get("bayesian_best_estimate", 0))
+    # ====================================================================
+    # STEP 1: GATHER COMPREHENSIVE DOSSIER
+    # ====================================================================
+    ncrf = state.get("scan_metrics", {}).get("ncrf", {})
+    sfia = state.get("sfia_result", {})
+    stats = state.get("validation_result", {})
+    sem = state.get("semantic_report", {})
     
-    print(f"👨‍⚖️ [Judge Agent] Deliberating Case. Grader: {llm_level} | Stats: {stats_level}")
-
-    # 2. Construct the "Deliberation" Case File
+    # Extract key data
+    bayesian_level = stats.get("bayesian_best_estimate", 3)
+    bayesian_confidence = stats.get("confidence", 0.0)
+    bayesian_range = stats.get("expected_range", [bayesian_level])
     
-    # Layer 1: Expert Testimony (Semantics)
-    expert_testimony = "No semantic review available."
-    if semantic_report:
-        expert_testimony = f"""
-        - **Reviewer Insight:** "{semantic_report.get('key_insight', 'N/A')}"
-        - **Code Quality Score:** {semantic_report.get('average_score', 0)}/10
-        - **Identified Strengths:** {', '.join(semantic_report.get('key_strengths', [])[:2])}
-        - **Identified Weaknesses:** {', '.join(semantic_report.get('key_weaknesses', [])[:2])}
-        """
-        
-    # Layer 2: Forensics (Patterns)
-    quality_forensics = "No quality analysis available."
-    if quality_report:
-        quality_forensics = f"""
-        - **Sophistication:** {quality_report.get('sophistication', 'basic')}
-        - **Red Flags (Anti-Patterns):** {quality_report.get('red_flags_count', 0)}
-        - **Green Flags (Best Practices):** {quality_report.get('green_flags_count', 0)}
-        """
-
-    # Layer 3: Process Maturity (Time Dimension)
-    maturity_context = "No git history available."
-    is_one_shot_push = False
+    llm_level = sfia.get("sfia_level", 3)
+    grader_reasoning = sfia.get("reasoning", "No reasoning provided")
     
-    if git_stats:
-        commits = git_stats.get('commit_count', 0)
-        days = git_stats.get('days_active', 0)
-        stability = git_stats.get('stability_score', 0.5)
-        
-        # Heuristic for "One Shot Push": Low commits (<3)
-        is_one_shot_push = (commits <= 2 and days < 1)
-        
-        maturity_context = f"""
-        - **Commit Count:** {commits}
-        - **Days Active:** {days}
-        - **Stability Score:** {stability:.2f}
-        - **One-Shot Push Detected:** {is_one_shot_push}
-        """
-
-    # 3. Fetch the "Constitution" from Opik Prompt Library (Best Use of Opik)
-    # This allows you to edit the Judge's logic in the UI without redeploying
+    witness_statement = sem.get("final_witness_statement", "No forensic testimony available.")
+    detailed_exhibits = json.dumps(sem.get("exhibits", {}), indent=2)
+    
+    sloc = ncrf.get("total_sloc", 0)
+    learning_hours = ncrf.get("estimated_learning_hours", 0)
+    ncrf_credits = ncrf.get("ncrf_base_credits", 0.0)
+    
+    # Log dossier summary
+    logger.info(
+        f"[Judge] Dossier: Bayesian={bayesian_level}, Grader={llm_level}, "
+        f"SLOC={sloc}, Hours={learning_hours}"
+    )
+    
+    # ====================================================================
+    # STEP 2: BUILD JUDICIAL RUBRIC WITH EXACT OPIK TEMPLATE VARIABLES
+    # ====================================================================
+    variables = {
+        "job_id": job_id,
+        "sloc": sloc,
+        "learning_hours": learning_hours,
+        "ncrf_credits": ncrf_credits,
+        "bayesian_level": bayesian_level,
+        "bayesian_confidence": f"{bayesian_confidence * 100:.1f}",  # Convert to percentage string
+        "bayesian_range": str(bayesian_range),  # Convert list to string for template
+        "llm_level": llm_level,
+        "grader_reasoning": grader_reasoning,
+        "witness_statement": witness_statement,
+        "detailed_exhibits": detailed_exhibits
+    }
+    
     try:
-        client = OpikManager.get_client(MAIN_PROJECT)
-        # Try to fetch, if it doesn't exist, create it (Self-Healing)
-        prompt_obj = client.get_prompt(name="supreme-court-judge-rules")
+        # ====================================================================
+        # STEP 3: FETCH JUDICIAL RUBRIC FROM OPIK
+        # ====================================================================
+        formatted_prompt = prompt_manager.format_prompt("judge-agent-rubric", variables)
         
-        if not prompt_obj:
-            # Fallback / Init
-            base_prompt = """
-You are the Supreme Technical Arbiter for the SkillProtocol Certification Board.
-Your goal is to distinguish between "Skill" (Code Quality) and "Process" (Engineering Maturity).
-
-**CASE # {{job_id}}**
-
-**The Conflict:**
-* **Assessor A (Grader Agent):** Recommends **Level {{llm_level}}**
-* **Assessor B (Statistical Model):** Suggests **Level {{stats_level}}**
-
-**The Evidence:**
-1. **Scale:** {{sloc}} lines of code. Complexity: {{complexity}}.
-2. **Process Maturity:** {{maturity_context}}
-3. **Forensics:** {{quality_forensics}}
-4. **Expert Testimony:** {{expert_testimony}}
-
-**Deliberation Instructions:**
-
-1. **The "Lone Wolf" Rule:**
-   - If Code Quality is HIGH but it is a "One-Shot Push" (<3 commits), CAP at Level 3.
-   - Do NOT award Level 4/5 without proven lifecycle management.
-
-2. **The "Code Dump" Check:**
-   - If code is complex but looks like a generic dump, Downgrade to Level 1.
-
-3. **Resolve the Conflict:**
-   - Use Expert Testimony to break ties.
-
-**Respond ONLY with valid JSON:**
-{{
-  "deliberation": "Explain your decision.",
-  "final_level": <int>,
-  "judge_ruling": "Definitive verdict statement.",
-  "overruled_grader": <boolean>
-}}
-            """
-            prompt_obj = client.create_prompt(name="supreme-court-judge-rules", prompt=base_prompt)
-            print("🆕 Created 'supreme-court-judge-rules' prompt in library")
-            
-        # Use the prompt text
-        system_prompt = prompt_obj.prompt
-        
-    except Exception as e:
-        print(f"⚠️ Prompt Library Error: {e}. Using fallback.")
-        system_prompt = "You are a Judge. Resolve the conflict between Level {{llm_level}} and {{stats_level}}."
-
-    # 4. Format the Prompt
-    # Using simple replacement for robustness
-    formatted_prompt = system_prompt.replace("{{llm_level}}", str(llm_level))\
-                                    .replace("{{stats_level}}", str(stats_level))\
-                                    .replace("{{sloc}}", str(ncrf.get("total_sloc")))\
-                                    .replace("{{complexity}}", str(ncrf.get("total_complexity")))\
-                                    .replace("{{job_id}}", str(state.get("job_id")))\
-                                    .replace("{{maturity_context}}", maturity_context)\
-                                    .replace("{{quality_forensics}}", quality_forensics)\
-                                    .replace("{{expert_testimony}}", expert_testimony)
-
-    # 5. Call the Judge LLM
-    client_llm = AsyncOpenAI(api_key=settings.GROQ_API_KEY, base_url=settings.LLM_BASE_URL)
-
-    try:
-        response = await client_llm.chat.completions.create(
-            model=settings.LLM_MODEL,
-            messages=[
-                {"role": "system", "content": "You are a fair, wise, and highly technical judge."},
-                {"role": "user", "content": formatted_prompt}
-            ],
-            temperature=0.2, # Low temp for consistent verdicts
-            response_format={"type": "json_object"}
+        logger.info(f"[Judge] Prompt formatted, invoking Gemini 3 Flash")
+        push_live_log(
+            job_id,
+            "judge",
+            f"Deliberating: Bayesian Level {bayesian_level} vs Grader Level {llm_level}...",
+            "success"
         )
-
-        verdict_json = response.choices[0].message.content
-        verdict = json.loads(verdict_json)
-
-        # 6. Execute Judgment
+        
+        # ====================================================================
+        # STEP 4: EXECUTE ARBITRATION VIA GEMINI 3 FLASH (MEDIUM THINKING)
+        # ====================================================================
+        raw_response = await prompt_manager.call_gemini(
+            prompt_text=formatted_prompt,
+            thinking_level="medium"  # Deep deliberation for complex cases
+        )
+        
+        # Parse verdict
+        verdict = json.loads(raw_response)
+        
+        # Validate required fields
+        required_fields = [
+            "deliberation",
+            "final_level",
+            "is_congruent",
+            "verdict_summary",
+            "justification",
+            "confidence_score"
+        ]
+        
+        for field in required_fields:
+            if field not in verdict:
+                raise ValueError(f"Judge response missing required field: {field}")
+        
+        # ====================================================================
+        # STEP 5: EXTRACT AND NORMALIZE VERDICT
+        # ====================================================================
         final_level = int(verdict.get("final_level", llm_level))
-        ruling = verdict.get("judge_ruling", "Verdict affirmed.")
-        deliberation = verdict.get("deliberation", "")
+        final_level = max(1, min(5, final_level))  # Ensure 1-5 range
         
-        print(f"👨‍⚖️ [Judge Agent] VERDICT REACHED: Level {final_level}")
-        print(f"   💭 Reasoning: {deliberation[:100]}...")
+        is_congruent = bool(verdict.get("is_congruent", True))
+        confidence_score = float(verdict.get("confidence_score", 0.8))
         
-        # 7. Log to Opik (Best Use of Opik)
+        level_names = {1: "Follow", 2: "Assist", 3: "Apply", 4: "Enable", 5: "Ensure"}
+        level_name = level_names.get(final_level, "Unknown")
+        
+        # ====================================================================
+        # STEP 6: UPDATE STATE WITH JUDGE VERDICT
+        # ====================================================================
+        state["sfia_result"].update({
+            "sfia_level": final_level,
+            "level_name": level_name,
+            "judge_summary": verdict.get("verdict_summary"),
+            "judge_justification": verdict.get("justification"),
+            "judge_deliberation": verdict.get("deliberation"),
+            "is_congruent": is_congruent,
+            "judge_confidence": confidence_score,
+            "judge_intervened": True  # Flag that judge made the final call
+        })
+        
+        # ====================================================================
+        # STEP 7: LOG JUDICIAL METRICS TO OPIK
+        # ====================================================================
         opik_context.update_current_trace(
             metadata={
-                "judge_deliberation": deliberation,
-                "judge_verdict": final_level,
-                "overruled_grader": verdict.get("overruled_grader", False)
-            }
+                "judge_verdict_level": final_level,
+                "is_congruent": is_congruent,
+                "judicial_confidence": confidence_score,
+                "bayesian_vs_grader_delta": abs(bayesian_level - llm_level),
+                "judge_vs_grader_delta": abs(final_level - llm_level),
+                "deliberation_summary": verdict["deliberation"]
+            },
+            tags=[
+                f"judge_level_{final_level}",
+                "congruent" if is_congruent else "override",
+                "judge_intervention"
+            ]
         )
         
-        # 8. Update State with the Final Verdict
-        state["sfia_result"]["sfia_level"] = final_level
-        state["sfia_result"]["level_name"] = _get_level_name(final_level)
-        state["sfia_result"]["reasoning"] = ruling
-        state["sfia_result"]["judge_intervened"] = True
-        state["sfia_result"]["judge_deliberation"] = deliberation
-
+        # ====================================================================
+        # STEP 8: LOG SUCCESS
+        # ====================================================================
+        logger.info(
+            f"[Judge] Verdict: Level {final_level} ({level_name}). "
+            f"Congruent: {is_congruent}, Confidence: {confidence_score:.1%}"
+        )
+        
+        push_live_log(
+            job_id,
+            "judge",
+            f"Final Verdict: Level {final_level} ({level_name}). "
+            f"Reasoning: {verdict['verdict_summary'][:800]}...",
+            "success"
+        )
+        
+        return state
+        
+    except json.JSONDecodeError as e:
+        error_msg = f"Judge failed to parse Gemini response: {str(e)}"
+        logger.error(f"[Judge] {error_msg}")
+        push_live_log(job_id, "judge", "Verdict parsing failed. Defaulting to Grader.", "error")
+        
+        state["errors"].append(error_msg)
+        
+        # Fallback: Keep Grader's verdict
+        state["sfia_result"].update({
+            "judge_summary": "Mistrial - Judge parsing error",
+            "judge_justification": f"Error: {str(e)}. Defaulting to Grader verdict.",
+            "judge_intervened": False
+        })
+        
+        return state
+        
     except Exception as e:
-        print(f"❌ [Judge Agent] Mistrial: {str(e)}")
-        state["errors"].append(f"Judge Agent failed: {str(e)}")
-    
-    return state
+        error_msg = f"Judge critical failure: {str(e)}"
+        logger.error(f"[Judge] {error_msg}")
+        push_live_log(job_id, "judge", "Internal judicial error. Defaulting to Grader.", "error")
+        
+        state["errors"].append(error_msg)
+        
+        # ✅ FIX: Lower confidence on failure
+        state["sfia_result"].update({
+            "judge_summary": "Mistrial - Internal error",
+            "judge_justification": f"Error: {str(e)}. Grader verdict stands.",
+            "judge_intervened": False,
+            "judge_confidence": 0.5  # ✅ Lower confidence on error
+        })
+        
+        return state
 
-def _get_level_name(level: int) -> str:
-    names = {1: "Follow", 2: "Assist", 3: "Apply", 4: "Enable", 5: "Ensure"}
-    return names.get(level, "Unknown")
+# def _get_level_name(level: int) -> str:
+#     """Helper to get SFIA level name"""
+#     mapping = {1: "Follow", 2: "Assist", 3: "Apply", 4: "Enable", 5: "Ensure"}
+#     return mapping.get(int(level or 0), "Unknown")

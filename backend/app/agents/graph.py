@@ -1,8 +1,9 @@
 """
-LangGraph Router - FIXED VERSION
-Properly stops flow when validation fails and ensures Thread Grouping in Opik.
+SkillProtocol LangGraph Orchestrator - FULL PRODUCTION VERSION
+Handles multi-agent handoff, Gemini 3 Flash execution, and Opik Thread Grouping.
 """
-from typing import Literal, Dict, Any
+
+from typing import Literal, Dict, Any, Optional
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from opik.integrations.langchain import OpikTracer
@@ -12,13 +13,14 @@ from app.core.config import settings
 from app.core.state import AnalysisState, create_initial_state
 from app.agents.validator import validate_repository
 from app.agents.scanner import scan_codebase
-from app.agents.grader import grade_sfia_level
+from app.agents.reviewer import review_semantics  # Forensic Architect
+from app.agents.grader import grade_sfia_level      # Initial Assessor
+from app.agents.judge import arbitrate_level        # Sovereign Arbiter
 from app.agents.auditor import reality_check
 from app.agents.reporter import store_and_report
-from app.agents.judge import arbitrate_level
 
 # ============================================================================
-# ROUTING LOGIC
+# ROUTING LOGIC (Preserved Original Robust Logic)
 # ============================================================================
 
 def should_proceed_to_scanner(state: AnalysisState) -> Literal["scanner", "reporter"]:
@@ -26,18 +28,15 @@ def should_proceed_to_scanner(state: AnalysisState) -> Literal["scanner", "repor
     Decision after validation: Should we clone and scan?
     Checks both should_skip AND validation.is_valid
     """
-    # Check skip flag
     if state.get("should_skip", False):
         print(f"⏭️  [Router] Skipping analysis: {state.get('skip_reason')}")
         return "reporter"
     
-    # Check validation result
     validation = state.get("validation")
     if not validation:
         print("⏭️  [Router] No validation data, skipping to reporter")
         return "reporter"
     
-    # Check is_valid flag
     if not validation.get("is_valid", False):
         print(f"⏭️  [Router] Validation failed: {validation.get('error')}")
         return "reporter"
@@ -46,16 +45,15 @@ def should_proceed_to_scanner(state: AnalysisState) -> Literal["scanner", "repor
     return "scanner"
 
 
-def should_proceed_to_grader(state: AnalysisState) -> Literal["grader", "reporter"]:
+def should_proceed_to_reviewer(state: AnalysisState) -> Literal["reviewer", "reporter"]:
     """
-    Decision after scanning: Did we get enough data to grade?
+    Decision after scanning: Did we get enough data to perform a deep forensic review?
     """
     scan_metrics = state.get("scan_metrics")
     if not scan_metrics:
         print("⏭️  [Router] No scan metrics, skipping to reporter")
         return "reporter"
     
-    # Check if we have meaningful code
     ncrf = scan_metrics.get("ncrf", {})
     total_sloc = ncrf.get("total_sloc", 0)
     
@@ -64,64 +62,67 @@ def should_proceed_to_grader(state: AnalysisState) -> Literal["grader", "reporte
         state["skip_reason"] = "Insufficient code to analyze"
         return "reporter"
     
-    print(f"✅ [Router] Found {total_sloc} SLOC, proceeding to grader")
-    return "grader"
+    print(f"✅ [Router] Found {total_sloc} SLOC, proceeding to reviewer")
+    return "reviewer"
 
 
 def should_retry_grader(state: AnalysisState) -> Literal["grader", "judge"]:
     """
-    Decision after grading: Should we retry or proceed to judgment?
+    Decision after grading: Should we retry or proceed to the Supreme Court (Judge)?
     """
     sfia_result = state.get("sfia_result")
     if not sfia_result:
-        # Always go to judge even on failure (Judge will handle empty state)
         return "judge" 
     
     confidence = sfia_result.get("confidence", 1.0)
     retry_count = sfia_result.get("retry_count", 0)
     
-    # Retry logic: If confidence is low and we haven't retried yet
     if confidence < 0.7 and retry_count == 0:
         print(f"🔄 [Router] Low confidence ({confidence:.2f}), retrying grader")
         state["sfia_result"]["retry_count"] = 1
         return "grader"
     
-    print(f"✅ [Router] Grader finished, proceeding to Supreme Court (Judge)")
+    print(f"✅ [Router] Grader finished, proceeding to Judge for final arbitration")
     return "judge"
 
 
 # ============================================================================
-# GRAPH CREATION
+# GRAPH CREATION (Integrated with Reviewer Node)
 # ============================================================================
 
 def create_analysis_graph():
-    """Creates the LangGraph workflow with Judge Agent"""
+    """Creates the LangGraph workflow with Reviewer and Judge Agents"""
     
     workflow = StateGraph(AnalysisState)
     
     # Add nodes
     workflow.add_node("validator", validate_repository)
     workflow.add_node("scanner", scan_codebase)
+    workflow.add_node("reviewer", review_semantics)  # Forensic Deposition Node
     workflow.add_node("grader", grade_sfia_level)
-    workflow.add_node("judge", arbitrate_level)   # The Supreme Court
+    workflow.add_node("judge", arbitrate_level)       # The Supreme Court
     workflow.add_node("auditor", reality_check)
     workflow.add_node("reporter", store_and_report)
     
     # Entry point
     workflow.set_entry_point("validator")
     
-    # Edges
+    # Validator -> Scanner
     workflow.add_conditional_edges(
         "validator",
         should_proceed_to_scanner,
         {"scanner": "scanner", "reporter": "reporter"}
     )
     
+    # Scanner -> Reviewer
     workflow.add_conditional_edges(
         "scanner",
-        should_proceed_to_grader,
-        {"grader": "grader", "reporter": "reporter"}
+        should_proceed_to_reviewer,
+        {"reviewer": "reviewer", "reporter": "reporter"}
     )
+    
+    # Reviewer -> Grader (Direct handoff of exhibits)
+    workflow.add_edge("reviewer", "grader")
     
     # Grader -> (Retry) OR (Judge)
     workflow.add_conditional_edges(
@@ -133,16 +134,12 @@ def create_analysis_graph():
         }
     )
     
-    # Judge -> Auditor (Standard flow)
+    # Final Adjudication Path
     workflow.add_edge("judge", "auditor")
-    
-    # Auditor -> Reporter
     workflow.add_edge("auditor", "reporter")
-    
-    # Reporter -> END
     workflow.add_edge("reporter", END)
     
-    # Compile
+    # Compile with Memory for State Snapshots
     checkpointer = MemorySaver()
     return workflow.compile(checkpointer=checkpointer)
 
@@ -152,7 +149,7 @@ analysis_graph = create_analysis_graph()
 
 
 # ============================================================================
-# EXECUTION INTERFACE (CORRECTED)
+# EXECUTION INTERFACE (Full Preservation of Threading Logic)
 # ============================================================================
 
 async def run_analysis(
@@ -163,11 +160,11 @@ async def run_analysis(
 ) -> AnalysisState:
     """
     High-level function to run the full analysis workflow.
-    CORRECTED: Passes thread_id to OpikTracer and LangGraph config.
+    Ensures Opik groups these spans under one thread_id.
     """
     
     print(f"\n{'='*70}")
-    print(f"🚀 Starting Analysis")
+    print(f"🚀 Starting SkillProtocol Analysis")
     print(f"   Job ID: {job_id}")
     print(f"   Repo: {repo_url}")
     print(f"   User: {user_id}")
@@ -181,11 +178,10 @@ async def run_analysis(
         user_github_token=user_github_token
     )
 
-    # 2. Configure Opik Tracer with Threading
-    # 1.9.96 FIX: project_name must be explicit to avoid Default Project leakage
+    # 2. Configure Opik Tracer with explicit project and threading
     opik_tracer = OpikTracer(
         project_name=settings.OPIK_PROJECT_NAME,
-        tags=["production", "skill-verification"],
+        tags=["production", "skill-verification", "gemini-3"],
         metadata={
             "user_id": user_id,
             "repo_url": repo_url,
@@ -193,24 +189,22 @@ async def run_analysis(
         }
     )
     
-    # 3. Run Workflow with Explicit Thread ID
-    # This is the magic key that groups all agent steps into one Conversation/Thread
+    # 3. Configure Threading and Persistence
     config = {
         "configurable": {
-            "thread_id": job_id  # <--- Ensures graph state persistence
+            "thread_id": job_id
         },
-        "callbacks": [opik_tracer], # <--- Logs to Opik
+        "callbacks": [opik_tracer],
         "metadata": {
-            "opik_thread_id": job_id # 1.9.96 FIX: Ensures Opik groups these spans
+            "opik_thread_id": job_id 
         }
     }
     
     try:
-        # Ainvoke with config ensures threading works
+        # Ainvoke ensures non-blocking async execution
         final_state = await analysis_graph.ainvoke(initial_state, config)
     except Exception as e:
         print(f"❌ Workflow execution error: {str(e)}")
-        # Return state with error
         initial_state["errors"].append(f"Workflow error: {str(e)}")
         initial_state["current_step"] = "complete"
         initial_state["progress"] = 100
@@ -219,6 +213,7 @@ async def run_analysis(
     
     print(f"\n{'='*70}")
     print(f"✅ Analysis Complete")
+    print(f"   Final Level: {final_state.get('sfia_result', {}).get('sfia_level', 'N/A')}")
     print(f"   Final Credits: {final_state.get('final_credits', 0)}")
     print(f"   Errors: {len(final_state.get('errors', []))}")
     print(f"{'='*70}\n")
@@ -227,7 +222,7 @@ async def run_analysis(
 
 
 async def get_analysis_status(job_id: str) -> dict:
-    """Get the current status of an ongoing analysis"""
+    """Gets a snapshot of the ongoing graph state via thread_id."""
     
     config = {"configurable": {"thread_id": job_id}}
     
@@ -243,12 +238,11 @@ async def get_analysis_status(job_id: str) -> dict:
         
         values = state_snapshot.values
         
-        # Determine status
+        # Determine status based on graph termination
         status = "running"
         if not state_snapshot.next and values.get("current_step") == "complete":
              status = "complete"
         elif not state_snapshot.next:
-             # Graph ended but maybe not marked complete
              status = "complete"
 
         return {

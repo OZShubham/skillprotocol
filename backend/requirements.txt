@@ -40,6 +40,9 @@ anthropic
 langchain
 langchain-openai
 langchain-anthropic
+litellm
+
+google-genai
 
 # Observability (THE PRIZE)
 opik           # CRITICAL: Opik integration

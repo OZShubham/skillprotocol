@@ -1,11 +1,4 @@
-# ============================================================================
-# FILE 5: backend/app/optimization/optimize_grader.py
-# ============================================================================
-"""
-Opik Agent Optimizer - THE HACKATHON SECRET WEAPON
-This automatically improves your SFIA grading prompt using meta-prompting
-"""
-
+# backend/app/optimization/optimize_grader.py
 import opik
 from opik import Opik
 from opik_optimizer import ChatPrompt, MetaPromptOptimizer
@@ -14,63 +7,69 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+# App Imports
 from app.evaluation.golden_dataset import GOLDEN_REPOS
-from app.evaluation.metrics import sfia_level_accuracy
-
-
+# Note: Ensure sfia_level_accuracy is available or define it locally if metrics.py doesn't export it as a standalone function
 from app.core.opik_config import OpikManager, PROJECTS
+from app.core.config import settings
 
+# Metric function for the optimizer
+def grader_metric(dataset_item, llm_output):
+    """
+    Parses LLM output and checks if the SFIA level matches the expected output.
+    """
+    try:
+        # Handle case where output is a dictionary (parsed JSON) or string
+        if isinstance(llm_output, dict):
+            pred_level = int(llm_output.get("sfia_level", 0))
+        else:
+            # Simple string parsing if raw text
+            clean_text = llm_output.replace("```json", "").replace("```", "").strip()
+            data = json.loads(clean_text)
+            pred_level = int(data.get("sfia_level", 0))
+
+        expected = int(dataset_item["expected_output"]["sfia_level"])
+        
+        # Binary score: 1.0 if exact match, 0.0 otherwise
+        return 1.0 if pred_level == expected else 0.0
+    except Exception:
+        return 0.0
 
 class GraderPromptOptimizer:
-    """Optimizer with correct project routing"""
+    """Optimizer with correct project routing and LiteLLM support"""
     
     def __init__(self):
-        # Use optimizer project
+        # Use optimizer project defined in opik_config
         self.client = OpikManager.get_client(PROJECTS["optimizer"])
         
-        # Current prompt from your engine.py
-        self.baseline_prompt_template = """You are a Senior Technical Auditor using SFIA (Skills Framework for the Information Age) to assess developer capability.
+        # This is the prompt we want to optimize (from your engine.py)
+        self.baseline_prompt_template = """You are a Senior Technical Auditor using SFIA to assess developer capability.
 
 **Repository Statistics:**
-- Files: {files_scanned}
-- Total SLOC: {total_sloc}
-- Complexity: {complexity_distribution}
-- Learning Hours: {estimated_learning_hours}
+- Files: {{input.files_scanned}}
+- Total SLOC: {{input.total_sloc}}
+- Complexity: {{input.complexity_distribution}}
+- Learning Hours: {{input.estimated_learning_hours}}
 
-**Evidence Detected:**
-✓ README: {has_readme}
-✓ Dependencies defined: {has_requirements}
-✓ Modular (3+ files): {has_modular_structure}
-✓ Tests: {has_tests}
-✓ Docstrings: {has_docstrings}
-✓ Design Patterns (OOP): {uses_design_patterns}
-✓ CI/CD: {has_ci_cd}
-✓ Docker: {has_docker}
-✓ Error Handling: {has_error_handling}
-✓ Async/Advanced: {uses_async}
+**Evidence:**
+- README: {{input.has_readme}}
+- Tests: {{input.has_tests}}
+- CI/CD: {{input.has_ci_cd}}
+- Docker: {{input.has_docker}}
+- Async: {{input.uses_async}}
 
-**SFIA Levels (GitHub-Provable):**
-Level 1 - Follow: Single-file scripts, no structure, basic syntax only.
-Level 2 - Assist: Multiple files with functions, but missing README/requirements. Needs guidance.
-Level 3 - Apply: ✓README + ✓Requirements + ✓Modular. Professional baseline. Works independently.
-Level 4 - Enable: ✓Level 3 + ✓Tests + ✓Docstrings + OOP. Can mentor juniors. Complex problem-solving.
-Level 5 - Ensure: ✓Level 4 + ✓CI/CD + ✓Docker + Production patterns. Owns system reliability.
-
-NOTE: Levels 6-7 require organizational impact evidence (not provable from code alone).
-
-**Task:** Assign ONE level (1-5) based on EVIDENCE, not potential. Be conservative.
+**Task:** Assign ONE SFIA level (1-5).
 
 **Respond ONLY with valid JSON:**
-{{
+{
   "sfia_level": 3,
-  "reasoning": "Clear explanation linking evidence to level",
-  "evidence_used": ["README present", "No tests found"],
-  "missing_for_next_level": ["Unit tests required for L4"],
+  "reasoning": "explanation",
+  "evidence_used": [],
   "confidence": 0.85
-}}
+}
 """
     
-    async def prepare_optimization_dataset(self):
+    def prepare_optimization_dataset(self):
         """
         Converts golden repos into format needed by Opik Optimizer
         """
@@ -78,189 +77,73 @@ NOTE: Levels 6-7 require organizational impact evidence (not provable from code 
         
         dataset_items = []
         
-        for repo in GOLDEN_REPOS[:10]:  # Use subset for faster optimization
-            # Simulate the data that would be passed to the prompt
+        for repo in GOLDEN_REPOS[:10]:  # Use subset for speed
+            # Map golden dataset structure to the variables expected by prompt
             item = {
                 "input": {
-                    "files_scanned": 15,  # Placeholder - in real eval this comes from scan
+                    "files_scanned": 15, # Placeholder simulation
                     "total_sloc": 1000,
-                    "complexity_distribution": {"moderate": 800, "complex": 200},
+                    "complexity_distribution": "moderate",
                     "estimated_learning_hours": 30,
                     "has_readme": repo.get("markers", {}).get("has_readme", False),
-                    "has_requirements": repo.get("markers", {}).get("has_requirements", False),
-                    "has_modular_structure": True,
                     "has_tests": repo.get("markers", {}).get("has_tests", False),
-                    "has_docstrings": False,
-                    "uses_design_patterns": False,
                     "has_ci_cd": repo.get("markers", {}).get("has_ci_cd", False),
                     "has_docker": repo.get("markers", {}).get("has_docker", False),
-                    "has_error_handling": False,
                     "uses_async": repo.get("markers", {}).get("uses_async", False)
                 },
                 "expected_output": {
-                    "sfia_level": repo["expected_sfia_level"]
-                },
-                "metadata": {
-                    "repo_url": repo["repo_url"],
-                    "reasoning": repo["reasoning"]
+                    "sfia_level": str(repo["expected_sfia_level"])
                 }
             }
-            
             dataset_items.append(item)
         
         # Create Opik dataset
-        dataset = self.client.get_or_create_dataset("sfia-optimizer-dataset-v1")
+        dataset_name = "sfia-optimizer-dataset-v1"
+        dataset = self.client.get_or_create_dataset(dataset_name)
         dataset.insert(dataset_items)
         
-        print(f"✅ Created optimizer dataset with {len(dataset_items)} items")
+        print(f"✅ Created/Updated dataset '{dataset_name}' with {len(dataset_items)} items")
         return dataset
     
-    async def run_optimization(
-        self, 
-        max_trials: int = 5,
-        model: str = "openai/gpt-4o"
-    ):
+    def run_optimization(self, max_trials: int = 5):
         """
-        Runs the optimization loop
-        
-        Args:
-            max_trials: Number of optimization iterations (more = better but slower)
-            model: Model to use for optimization (gpt-4o recommended)
+        Runs the optimization using Groq (via LiteLLM conventions)
         """
-        print(f"\n{'='*80}")
-        print(f"🚀 STARTING AGENT OPTIMIZER")
-        print(f"{'='*80}\n")
-        print(f"Model: {model}")
-        print(f"Max Trials: {max_trials}")
-        print(f"This will take ~{max_trials * 2} minutes...")
-        print()
+        # 1. Define Model
+        # Using groq/ prefix tells Opik Optimizer to use LiteLLM
+        model_name = f"groq/{settings.LLM_MODEL.replace('groq/', '')}"
         
-        # Prepare dataset
-        dataset = await self.prepare_optimization_dataset()
+        print(f"🚀 Starting Optimizer using model: {model_name}")
         
-        # Create baseline prompt object
+        # 2. Prepare Dataset
+        dataset = self.prepare_optimization_dataset()
+        
+        # 3. Initialize Prompt
+        # Opik Optimizer expects Mustache syntax {{variable}}
         baseline_prompt = ChatPrompt(
             messages=[{
                 "role": "user",
                 "content": self.baseline_prompt_template
-            }],
-            model=model
+            }]
         )
         
-        # Initialize optimizer
-        print("🧠 Initializing Meta-Prompt Optimizer...")
-        optimizer = MetaPromptOptimizer(model=model)
+        # 4. Initialize Optimizer
+        optimizer = MetaPromptOptimizer(model=model_name)
         
-        # Run optimization
-        print("⏳ Running optimization loop...\n")
-        
+        # 5. Run
         result = optimizer.optimize_prompt(
             prompt=baseline_prompt,
             dataset=dataset,
-            metric=sfia_level_accuracy,
+            metric=grader_metric,
             max_trials=max_trials,
-            verbose=1  # Show progress
+            verbose=1
         )
         
-        # Print results
-        print(f"\n{'='*80}")
-        print(f"🏆 OPTIMIZATION COMPLETE")
-        print(f"{'='*80}\n")
-        
-        baseline_score = result.history[0]['score']
-        final_score = result.history[-1]['score']
-        improvement = final_score - baseline_score
-        
-        print(f"📊 Results:")
-        print(f"  Baseline Accuracy:   {baseline_score:.1%}")
-        print(f"  Optimized Accuracy:  {final_score:.1%}")
-        print(f"  Improvement:         {improvement:+.1%}")
-        print()
-        
-        # Show iteration history
-        print(f"📈 Optimization History:")
-        for i, trial in enumerate(result.history):
-            print(f"  Trial {i+1}: {trial['score']:.1%}")
-        print()
-        
-        # Save optimized prompt
-        self._save_optimized_prompt(result.prompt, baseline_score, final_score)
-        
-        # Generate comparison report
-        self._generate_comparison_report(result.history)
+        print(f"\n🏆 Best Score: {result.best_score}")
+        print(f"✨ Optimized Prompt:\n{result.prompt}")
         
         return result
-    
-    def _save_optimized_prompt(self, optimized_prompt, baseline_score, final_score):
-        """
-        Saves the optimized prompt to a file
-        """
-        output_dir = Path("optimization_results")
-        output_dir.mkdir(exist_ok=True)
-        
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_file = output_dir / f"optimized_prompt_{timestamp}.txt"
-        
-        with open(output_file, 'w') as f:
-            f.write("="*80 + "\n")
-            f.write("OPTIMIZED SFIA GRADING PROMPT\n")
-            f.write("="*80 + "\n\n")
-            f.write(f"Baseline Accuracy: {baseline_score:.1%}\n")
-            f.write(f"Optimized Accuracy: {final_score:.1%}\n")
-            f.write(f"Improvement: {(final_score - baseline_score):+.1%}\n\n")
-            f.write("="*80 + "\n\n")
-            f.write(str(optimized_prompt))
-            f.write("\n\n")
-            f.write("="*80 + "\n")
-            f.write("INSTRUCTIONS FOR USE:\n")
-            f.write("="*80 + "\n")
-            f.write("1. Copy the prompt content above\n")
-            f.write("2. Replace the prompt in app/services/scoring/engine.py\n")
-            f.write("3. Specifically update the get_sfia_rubric_prompt() method\n")
-            f.write("4. Re-run evaluation to verify improvement\n")
-        
-        print(f"✅ Optimized prompt saved to: {output_file}")
-        print(f"\n📋 Next Steps:")
-        print(f"   1. Review the optimized prompt in: {output_file}")
-        print(f"   2. Copy it to app/services/scoring/engine.py")
-        print(f"   3. Run: python run_evaluation.py optimized")
-    
-    def _generate_comparison_report(self, history):
-        """
-        Generates a visual comparison chart
-        """
-        try:
-            import matplotlib.pyplot as plt
-            
-            trials = list(range(1, len(history) + 1))
-            scores = [h['score'] for h in history]
-            
-            plt.figure(figsize=(10, 6))
-            plt.plot(trials, scores, marker='o', linewidth=2, markersize=8)
-            plt.axhline(y=scores[0], color='r', linestyle='--', label='Baseline')
-            plt.axhline(y=scores[-1], color='g', linestyle='--', label='Optimized')
-            
-            plt.xlabel('Optimization Trial', fontsize=12)
-            plt.ylabel('SFIA Accuracy Score', fontsize=12)
-            plt.title('Opik Agent Optimizer - Performance Improvement', fontsize=14, fontweight='bold')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-            
-            # Add improvement annotation
-            improvement = scores[-1] - scores[0]
-            plt.text(
-                len(trials) / 2, 
-                max(scores) * 0.95, 
-                f'Improvement: {improvement:+.1%}',
-                ha='center',
-                fontsize=12,
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-            )
-            
-            output_file = Path("optimization_results") / "optimization_chart.png"
-            plt.savefig(output_file, dpi=300, bbox_inches='tight')
-            
-            print(f"✅ Comparison chart saved to: {output_file}")
-            
-        except ImportError:
-            print("⚠️  matplotlib not installed, skipping chart generation")
+
+if __name__ == "__main__":
+    opt = GraderPromptOptimizer()
+    opt.run_optimization(max_trials=3)

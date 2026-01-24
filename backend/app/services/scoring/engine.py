@@ -294,9 +294,11 @@ class ScoringEngine:
                 continue
             
             for file in files:
+                file_path = os.path.join(root, file)
+                file_lower = file.lower()
                 # --- FIX 1: EXPLICIT LOCKFILE IGNORE ---
-                if file in IGNORED_FILES:
-                    continue
+                if any(ignored in file_lower for ignored in IGNORED_FILES):
+                   continue
                     
                 _, ext = os.path.splitext(file)
                 
@@ -467,56 +469,61 @@ class ScoringEngine:
             s_range = statistical_hint['plausible_range']
             
             stats_context = f"""
-**📊 Statistical Prior (Bayesian Model):**
-- Based on code metrics (SLOC: {ncrf_stats['total_sloc']}, MI: {ncrf_stats['avg_mi']}), the math suggests **Level {s_level}** ({s_conf:.1%} confidence).
-- Plausible Range: Levels {min(s_range)} to {max(s_range)}.
-- **INSTRUCTION:** If you deviate from Level {s_level}, you MUST provide strong evidence (e.g., specific advanced patterns) in the 'reasoning' field to justify why the metrics are misleading.
-"""
-        # -------------------------------------
-        
+            **📊 Statistical Prior (Bayesian Model):**
+            - Based on code metrics (SLOC: {ncrf_stats['total_sloc']}, MI: {ncrf_stats['avg_mi']}), the math suggests **Level {s_level}** ({s_conf:.1%} confidence).
+            - Plausible Range: Levels {min(s_range)} to {max(s_range)}.
+            - **INSTRUCTION:** If you deviate from Level {s_level}, you MUST provide strong evidence (e.g., specific advanced patterns) in the 'reasoning' field to justify why the metrics are misleading.
+            """
+        else:  # ✅ ADD THIS ELSE BLOCK
+           stats_context = """
+            **📊 Statistical Prior (Bayesian Model):**
+            - No statistical baseline available. Use evidence-based assessment only.
+            """
+                    # -------------------------------------
+            
         return f"""You are a Senior Technical Auditor using SFIA (Skills Framework for the Information Age) to assess developer capability.
 
-**Repository Statistics:**
-- Files: {ncrf_stats['files_scanned']}
-- Total SLOC: {ncrf_stats['total_sloc']}
-- Complexity: {ncrf_stats['total_complexity']} ({ncrf_stats['complexity_density']:.3f} per line)
-- Maintainability Index: {ncrf_stats['avg_mi']}/100
-- Learning Hours: {ncrf_stats['estimated_learning_hours']}
+    **Repository Statistics:**
+    - Files: {ncrf_stats['files_scanned']}
+    - Total SLOC: {ncrf_stats['total_sloc']}
+    - Complexity: {ncrf_stats['total_complexity']} ({ncrf_stats['complexity_density']:.3f} per line)
+    - Maintainability Index: {ncrf_stats['avg_mi']}/100
+    - Learning Hours: {ncrf_stats['estimated_learning_hours']}
 
-{lang_context}
-{stats_context}
+    {lang_context}
+    {stats_context}
 
-**Evidence Detected:**
-✓ README: {markers.get('has_readme', False)}
-✓ Dependencies defined: {markers.get('has_requirements', False)}
-✓ Modular (3+ files): {markers.get('has_modular_structure', False)}
-✓ Tests: {markers.get('has_tests', False)}
-✓ Docstrings: {markers.get('has_docstrings', False)}
-✓ Design Patterns (OOP/Interfaces): {markers.get('uses_design_patterns', False)}
-✓ CI/CD: {markers.get('has_ci_cd', False)}
-✓ Docker: {markers.get('has_docker', False)}
-✓ Error Handling: {markers.get('has_error_handling', False)}
-✓ Async/Concurrent: {markers.get('uses_async', False)}
-✓ Generics/Templates: {markers.get('uses_generics', False)}
+    **Evidence Detected:**
+    ✓ README: {markers.get('has_readme', False)}
+    ✓ Dependencies defined: {markers.get('has_requirements', False)}
+    ✓ Modular (3+ files): {markers.get('has_modular_structure', False)}
+    ✓ Tests: {markers.get('has_tests', False)}
+    ✓ Docstrings: {markers.get('has_docstrings', False)}
+    ✓ Design Patterns (OOP/Interfaces): {markers.get('uses_design_patterns', False)}
+    ✓ CI/CD: {markers.get('has_ci_cd', False)}
+    ✓ Docker: {markers.get('has_docker', False)}
+    ✓ Error Handling: {markers.get('has_error_handling', False)}
+    ✓ Async/Concurrent: {markers.get('uses_async', False)}
+    ✓ Generics/Templates: {markers.get('uses_generics', False)}
 
-**SFIA Levels (GitHub-Provable):**
-Level 1 - Follow: Single-file scripts, no structure, basic syntax only.
-Level 2 - Assist: Multiple files with functions, but missing README/requirements. Needs guidance.
-Level 3 - Apply: ✓README + ✓Requirements + ✓Modular. Professional baseline. Works independently.
-Level 4 - Enable: ✓Level 3 + ✓Tests + ✓Design Patterns + Error Handling. Can mentor juniors.
-Level 5 - Ensure: ✓Level 4 + ✓CI/CD + ✓Docker + Production patterns. Owns system reliability.
+    **SFIA Levels (GitHub-Provable):**
+    Level 1 - Follow: Single-file scripts, no structure, basic syntax only.
+    Level 2 - Assist: Multiple files with functions, but missing README/requirements. Needs guidance.
+    Level 3 - Apply: ✓README + ✓Requirements + ✓Modular. Professional baseline. Works independently.
+    Level 4 - Enable: ✓Level 3 + ✓Tests + ✓Design Patterns + Error Handling. Can mentor juniors.
+    Level 5 - Ensure: ✓Level 4 + ✓CI/CD + ✓Docker + Production patterns. Owns system reliability.
 
-**Task:** Assign ONE level (1-5) based on EVIDENCE, not potential. Consider the multi-language nature and complexity.
+    **Task:** Assign ONE level (1-5) based on EVIDENCE, not potential. Consider the multi-language nature and complexity.
 
-**Respond ONLY with valid JSON:**
-{{
-  "sfia_level": 3,
-  "confidence": 0.85,
-  "reasoning": "Clear explanation linking evidence to level",
-  "evidence_used": ["README present", "Multi-language structure"],
-  "missing_for_next_level": ["Unit tests required for L4"]
-}}
-"""
+    **Respond ONLY with valid JSON:**
+    {{
+    "sfia_level": 3,
+    "confidence": 0.85,
+    "reasoning": "Clear explanation linking evidence to level",
+    "evidence_used": ["README present", "Multi-language structure"],
+    "missing_for_next_level": ["Unit tests required for L4"]
+    }}
+    """
     
     def finalize_score(self, ncrf_data: Dict, sfia_markers: Dict, llm_sfia_response_json: str, reality_check_passed: bool = True) -> Dict[str, Any]:
         """Final score calculation with enhanced audit trail"""

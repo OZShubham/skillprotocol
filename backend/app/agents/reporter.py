@@ -234,9 +234,7 @@ def audit_result_passed(state: AnalysisState) -> bool:
     return audit.get("reality_check_passed", False)
 
 def _calculate_final_credits(state: AnalysisState) -> float:
-    """
-    Calculates final credits with ALL multipliers.
-    """
+    """Calculates final credits with ALL multipliers."""
     ncrf_base = 0.0
     scan_metrics = state.get("scan_metrics")
     if scan_metrics and scan_metrics.get("ncrf"):
@@ -258,9 +256,8 @@ def _calculate_final_credits(state: AnalysisState) -> float:
     if scan_metrics:
         quality_multiplier = scan_metrics.get("quality_multiplier", 1.0)
     
-    semantic_multiplier = 1.0
-    if scan_metrics:
-        semantic_multiplier = scan_metrics.get("semantic_multiplier", 1.0)
+    # ✅ FIX: Read from ROOT state, not scan_metrics
+    semantic_multiplier = state.get("semantic_multiplier", 1.0)
     
     final_credits = (
         ncrf_base 
@@ -274,13 +271,13 @@ def _calculate_final_credits(state: AnalysisState) -> float:
     
     return round(final_credits, 2)
 
-
 async def _get_git_stability(state: AnalysisState) -> float:
     """
     Get git stability score from state (pre-calculated by Scanner).
     """
     scan_metrics = state.get("scan_metrics", {})
     git_stats = scan_metrics.get("git_stats", {})
+    
     return git_stats.get("stability_score", 0.5)
 
 

@@ -2,16 +2,19 @@
 # FILE: backend/app/evaluation/runner.py
 # ============================================================================
 """
-Main Evaluation Runner - Executes tests and generates reports
+Main Evaluation Runner - Executes tests and generates reports with Groq integration
 """
 
 import opik
 from opik import Opik, track
+from opik.integrations.openai import track_openai
 import asyncio
 import json
+import os
 from datetime import datetime
 from typing import List, Dict, Any
 from pathlib import Path
+from openai import OpenAI
 
 from app.evaluation.golden_dataset import GOLDEN_REPOS, validate_golden_dataset
 # CHANGE: Import the classes, not functions
@@ -26,19 +29,27 @@ from app.core.opik_config import OpikManager, PROJECTS, log_evaluation_trace
 
 
 class SkillProtocolEvaluationRunner:
-    """Evaluation runner with correct project routing"""
+    """Evaluation runner with Groq integration and correct project routing"""
     
     def __init__(self):
         # Use eval project
         self.client = OpikManager.get_client(PROJECTS["eval"])
         self.project_name = PROJECTS["eval"]
 
-        # CHANGE: Instantiate the metric classes
+        # Initialize Groq client with OpenAI compatibility
+        self.groq_client = OpenAI(
+            api_key=os.environ.get("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1",
+        )
+        # Track with Opik for observability
+        self.groq_client = track_openai(self.groq_client)
+
+        # CHANGE: Instantiate the metric classes with Groq models
         self.metrics = [
-            SfiaLevelAccuracy(),
-            CreditRangeConsistency(),
-            MarkerDetectionAccuracy(),
-            ReasoningQuality()
+            SfiaLevelAccuracy(model="groq/llama3-70b-8192"),
+            CreditRangeConsistency(model="groq/llama3-70b-8192"),
+            MarkerDetectionAccuracy(model="groq/llama3-70b-8192"),
+            ReasoningQuality(model="groq/llama3-70b-8192")
         ]
         
         # Validate dataset on init
@@ -59,20 +70,43 @@ class SkillProtocolEvaluationRunner:
         print(f"✅ Dataset created with {len(GOLDEN_REPOS)} repositories")
         return dataset
     
+    @track(name="Repository Analysis", type="tool")
+    async def run_analysis_internal(
+        self, 
+        repo_url: str, 
+        job_id: str, 
+        model: str = "groq/llama3-70b-8192"
+    ) -> Dict[str, Any]:
+        """
+        Internal method to run analysis with Groq models
+        """
+        from app.agents.graph import run_analysis
+        
+        # Run the analysis with Groq model configuration
+        state = await run_analysis(
+            repo_url=repo_url,
+            user_id="eval_user",
+            job_id=job_id,
+            llm_client=self.groq_client,  # Pass Groq client
+            model=model  # Pass model name
+        )
+        
+        return state
+    
     @track(name="Full Evaluation Run", type="tool", project_name="skillprotocol-evals")
     async def run_evaluation(
         self, 
         experiment_name: str = "baseline",
         limit: int = None,
-        skip_analysis: bool = False
+        skip_analysis: bool = False,
+        model: str = "groq/llama3-70b-8192"
     ) -> Dict[str, Any]:
         """
-        Runs complete evaluation on golden dataset
+        Runs complete evaluation on golden dataset with Groq models
         """
-        from app.agents.graph import run_analysis
-        
         print(f"\n{'='*80}")
-        print(f"🔬 STARTING EVALUATION: {experiment_name}")
+        print(f"🔬 STARTING EVALUATION: {experiment_name} (Powered by Groq)")
+        print(f"Model: {model}")
         print(f"{'='*80}\n")
         
         repos_to_eval = GOLDEN_REPOS[:limit] if limit else GOLDEN_REPOS
@@ -83,6 +117,7 @@ class SkillProtocolEvaluationRunner:
             
             print(f"\n[{i+1}/{len(repos_to_eval)}] Evaluating: {repo_name}")
             print(f"Expected Level: {repo_item['expected_sfia_level']}")
+            print(f"Using Model: {model}")
             print("-" * 60)
             
             try:
@@ -95,202 +130,174 @@ class SkillProtocolEvaluationRunner:
                         print(f"  📁 Loaded from cache")
                     else:
                         print(f"  ⚠️  No cache found, running analysis...")
-                        state = await run_analysis(
+                        state = await self.run_analysis_internal(
                             repo_url=repo_item["repo_url"],
-                            user_id="eval_user",
-                            job_id=f"eval_{experiment_name}_{repo_name}"
+                            job_id=f"eval_{experiment_name}_{repo_name}",
+                            model=model
                         )
                 else:
-                    # Run actual analysis
-                    print(f"  🔄 Running analysis...")
-                    state = await run_analysis(
+                    # Run actual analysis with Groq
+                    print(f"  🔄 Running analysis with Groq...")
+                    state = await self.run_analysis_internal(
                         repo_url=repo_item["repo_url"],
-                        user_id="eval_user",
-                        job_id=f"eval_{experiment_name}_{repo_name}"
+                        job_id=f"eval_{experiment_name}_{repo_name}",
+                        model=model
                     )
                     
                     # Cache results
                     cache_dir = Path("cache")
                     cache_dir.mkdir(exist_ok=True)
-                    with open(cache_dir / f"eval_{repo_name}.json", 'w') as f:
+                    cache_file = cache_dir / f"eval_{repo_name}.json"
+                    with open(cache_file, 'w') as f:
                         json.dump(state, f, indent=2)
                 
-                # Calculate all metrics
-                print(f"\n  📊 Calculating metrics...")
-                scores = {}
-                metric_details = []
+                # Extract results for evaluation
+                sfia_result = state.get("sfia_result", {})
+                scan_metrics = state.get("scan_metrics", {})
                 
+                # Evaluate with metrics
+                metric_scores = {}
                 for metric in self.metrics:
-                    # CHANGE: Call .score() with named arguments
-                    score_result = metric.score(
-                        dataset_item=repo_item, 
-                        llm_output=state
-                    )
-                    scores[score_result.name] = score_result.value
-                    metric_details.append(score_result)
-                    
-                    # Print each metric
-                    icon = "✓" if score_result.value >= 0.8 else "~" if score_result.value >= 0.5 else "✗"
-                    print(f"  {icon} {score_result.name}: {score_result.value:.1%} - {score_result.reason}")
+                    try:
+                        score = await metric.evaluate(
+                            predicted=sfia_result,
+                            expected=repo_item,
+                            context=scan_metrics
+                        )
+                        metric_scores[metric.name] = score
+                        print(f"  ✅ {metric.name}: {score:.3f}")
+                    except Exception as e:
+                        print(f"  ❌ {metric.name}: Failed - {e}")
+                        metric_scores[metric.name] = 0.0
                 
-                # Build result object
+                # Store result
                 result = {
-                    "repo_name": repo_name,
                     "repo_url": repo_item["repo_url"],
-                    "expected_level": repo_item["expected_sfia_level"],
-                    "predicted_level": state.get("sfia_result", {}).get("sfia_level") if state.get("sfia_result") else None,
-                    "final_credits": state.get("final_credits", 0),
-                    "expected_credits_range": repo_item["expected_credits_range"],
-                    **scores,
-                    "opik_trace_id": state.get("opik_trace_id"),
-                    "errors": state.get("errors", [])
+                    "repo_name": repo_name,
+                    "expected": repo_item,
+                    "predicted": sfia_result,
+                    "scan_metrics": scan_metrics,
+                    "metric_scores": metric_scores,
+                    "model_used": model,
+                    "timestamp": datetime.now().isoformat()
                 }
-                
                 results.append(result)
                 
-                
-                # Log to Opik using the dedicated evaluation logger
+                # Log to Opik with Groq model info
                 log_evaluation_trace(
-                    name=f"Eval: {repo_name}",
-                    input_data={
-                        "repo_url": repo_item["repo_url"],
-                        "expected_level": repo_item["expected_sfia_level"]
-                    },
-                    output_data=state,
-                    metrics=scores 
-                )
-
-                # Also log to main client for experiment tracking
-                self.client.log_traces({
-                    "name": f"Eval: {repo_name}",
-                    "tags": [
-                        experiment_name, 
-                        f"level_{repo_item['expected_sfia_level']}", 
-                        "evaluation"
-                    ],
-                    "metadata": {
-                        **scores,
-                        "experiment": experiment_name
+                    repo_url=repo_item["repo_url"],
+                    expected=repo_item,
+                    predicted=sfia_result,
+                    scores=metric_scores,
+                    experiment_name=experiment_name,
+                    model_info={
+                        "provider": "groq",
+                        "model": model,
+                        "base_url": "https://api.groq.com/openai/v1"
                     }
-                })
-                
-                print(f"  ✅ Logged to Opik")
+                )
                 
             except Exception as e:
-                print(f"  ❌ Error: {str(e)}")
-                results.append({
-                    "repo_name": repo_name,
+                print(f"  ❌ Failed: {e}")
+                # Log failure
+                result = {
                     "repo_url": repo_item["repo_url"],
+                    "repo_name": repo_name,
+                    "expected": repo_item,
+                    "predicted": None,
                     "error": str(e),
-                    "expected_level": repo_item["expected_sfia_level"]
-                })
+                    "model_used": model,
+                    "timestamp": datetime.now().isoformat()
+                }
+                results.append(result)
         
-        # Generate summary report
-        summary = self._generate_summary(results, experiment_name)
+        # Generate summary
+        summary = self._generate_summary(results, experiment_name, model)
         
         # Save results
         self._save_results(results, summary, experiment_name)
         
         return {
-            "experiment": experiment_name,
+            "experiment_name": experiment_name,
+            "model": model,
             "results": results,
             "summary": summary,
-            "timestamp": datetime.utcnow().isoformat()
+            "total_repos": len(repos_to_eval),
+            "successful_evals": len([r for r in results if "error" not in r])
         }
     
-    def _generate_summary(self, results: List[Dict], experiment_name: str) -> Dict[str, Any]:
-        """
-        Generates aggregate metrics summary
-        """
-        valid_results = [r for r in results if "error" not in r]
+    def _generate_summary(self, results: List[Dict], experiment_name: str, model: str) -> Dict[str, Any]:
+        """Generate evaluation summary with Groq model info"""
+        successful_results = [r for r in results if "error" not in r]
         
-        if not valid_results:
+        if not successful_results:
             return {
-                "error": "No valid results",
+                "experiment_name": experiment_name,
+                "model": model,
                 "total_repos": len(results),
-                "failed_repos": len(results)
+                "successful_evals": 0,
+                "error": "No successful evaluations"
             }
         
-        # Calculate averages
-        avg_sfia = sum(r.get("sfia_accuracy", 0) for r in valid_results) / len(valid_results)
-        avg_credit = sum(r.get("credit_consistency", 0) for r in valid_results) / len(valid_results)
-        avg_marker = sum(r.get("marker_accuracy", 0) for r in valid_results) / len(valid_results)
-        avg_reasoning = sum(r.get("reasoning_quality", 0) for r in valid_results) / len(valid_results)
+        # Calculate average scores per metric
+        metric_averages = {}
+        for metric in self.metrics:
+            scores = [r["metric_scores"].get(metric.name, 0) for r in successful_results]
+            metric_averages[metric.name] = {
+                "mean": sum(scores) / len(scores) if scores else 0,
+                "min": min(scores) if scores else 0,
+                "max": max(scores) if scores else 0,
+                "count": len(scores)
+            }
         
-        overall_score = (avg_sfia + avg_credit + avg_marker + avg_reasoning) / 4
-        
-        # Level-wise breakdown
-        level_accuracy = {}
-        for level in range(1, 6):
-            level_results = [r for r in valid_results if r["expected_level"] == level]
-            if level_results:
-                level_acc = sum(r.get("sfia_accuracy", 0) for r in level_results) / len(level_results)
-                level_accuracy[f"level_{level}"] = {
-                    "accuracy": level_acc,
-                    "count": len(level_results)
-                }
-        
-        summary = {
-            "experiment": experiment_name,
+        return {
+            "experiment_name": experiment_name,
+            "model": model,
+            "provider": "groq",
             "total_repos": len(results),
-            "successful": len(valid_results),
-            "failed": len(results) - len(valid_results),
-            "metrics": {
-                "sfia_accuracy": round(avg_sfia, 4),
-                "credit_consistency": round(avg_credit, 4),
-                "marker_accuracy": round(avg_marker, 4),
-                "reasoning_quality": round(avg_reasoning, 4),
-                "overall_score": round(overall_score, 4)
-            },
-            "level_breakdown": level_accuracy
+            "successful_evals": len(successful_results),
+            "failed_evals": len(results) - len(successful_results),
+            "metric_averages": metric_averages,
+            "timestamp": datetime.now().isoformat()
         }
-        
-        # Print beautiful summary
-        print(f"\n{'='*80}")
-        print(f"📊 EVALUATION SUMMARY: {experiment_name}")
-        print(f"{'='*80}")
-        print(f"\nRepositories:")
-        print(f"  Total:       {summary['total_repos']}")
-        print(f"  Successful: {summary['successful']}")
-        print(f"  Failed:      {summary['failed']}")
-        
-        print(f"\nMetrics:")
-        print(f"  SFIA Accuracy:        {avg_sfia:.1%}")
-        print(f"  Credit Consistency:   {avg_credit:.1%}")
-        print(f"  Marker Accuracy:      {avg_marker:.1%}")
-        print(f"  Reasoning Quality:    {avg_reasoning:.1%}")
-        print(f"\n  📈 OVERALL SCORE:     {overall_score:.1%}")
-        
-        if level_accuracy:
-            print(f"\nLevel-wise Performance:")
-            for level in range(1, 6):
-                key = f"level_{level}"
-                if key in level_accuracy:
-                    acc = level_accuracy[key]["accuracy"]
-                    count = level_accuracy[key]["count"]
-                    print(f"  Level {level}: {acc:.1%} ({count} repos)")
-        
-        print(f"{'='*80}\n")
-        
-        return summary
     
     def _save_results(self, results: List[Dict], summary: Dict, experiment_name: str):
-        """
-        Saves results to JSON file for judges
-        """
-        output_dir = Path("evaluation_results")
-        output_dir.mkdir(exist_ok=True)
+        """Save evaluation results to file"""
+        results_dir = Path("evaluation_results")
+        results_dir.mkdir(exist_ok=True)
         
-        output_file = output_dir / f"{experiment_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        output_data = {
-            "experiment": experiment_name,
-            "timestamp": datetime.utcnow().isoformat(),
-            "summary": summary,
-            "detailed_results": results
-        }
+        # Save detailed results
+        results_file = results_dir / f"{experiment_name}_{timestamp}_detailed.json"
+        with open(results_file, 'w') as f:
+            json.dump(results, f, indent=2)
         
-        with open(output_file, 'w') as f:
-            json.dump(output_data, f, indent=2)
+        # Save summary
+        summary_file = results_dir / f"{experiment_name}_{timestamp}_summary.json"
+        with open(summary_file, 'w') as f:
+            json.dump(summary, f, indent=2)
         
-        print(f"✅ Results saved to: {output_file}")
+        print(f"\n📊 Results saved:")
+        print(f"  📄 Detailed: {results_file}")
+        print(f"  📋 Summary: {summary_file}")
+
+    @track(name="Quick Model Test", type="tool")
+    async def test_groq_connection(self, model: str = "groq/llama3-8b-8192") -> bool:
+        """Test Groq connection and model availability"""
+        try:
+            response = self.groq_client.chat.completions.create(
+                model=model.replace("groq/", ""),  # Remove prefix for actual API call
+                messages=[
+                    {"role": "user", "content": "Test connection. Respond with 'OK'."}
+                ],
+                max_tokens=10
+            )
+            
+            result = response.choices[0].message.content.strip()
+            print(f"✅ Groq connection successful: {result}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Groq connection failed: {e}")
+            return False

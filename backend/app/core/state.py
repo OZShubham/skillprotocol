@@ -1,6 +1,6 @@
 """
-LangGraph State Schema
-Defines the shared state that flows through all agents
+LangGraph State Schema - Production Version 2.0
+Defines the shared state that flows through the SkillProtocol agentic workflow.
 """
 
 from typing import TypedDict, Literal, List, Dict, Any, Optional
@@ -12,9 +12,7 @@ from datetime import datetime
 class AnalysisState(TypedDict):
     """
     The central state object that all agents read from and write to.
-    
-    Think of this as the "memory" that agents share.
-    Each agent updates specific fields and passes it to the next agent.
+    Acts as the 'shared memory' for the SkillProtocol Board of Agents.
     """
     
     # ========================================================================
@@ -23,130 +21,98 @@ class AnalysisState(TypedDict):
     repo_url: str
     """GitHub repository URL to analyze"""
     
-    user_id: str
-    """User ID requesting the analysis"""
-    
     job_id: str
     """Unique identifier for this analysis job"""
+    
+    user_id: str
+    """User ID requesting the analysis"""
     
     user_github_token: Optional[str]
     """Optional: User's GitHub token for private repo access"""
     
     # ========================================================================
-    # PROGRESS TRACKING (Updated by each agent)
+    # PROGRESS TRACKING
     # ========================================================================
-    current_step: Literal["validator", "scanner", "grader", "judge", "auditor", "reporter", "complete"]
+    current_step: Literal[
+        "validator", "scanner", "reviewer", "grader", "judge", "auditor", "reporter", "complete"
+    ]
     """Which agent is currently executing"""
     
     progress: int
     """Overall progress percentage (0-100)"""
     
     # ========================================================================
-    # AGENT OUTPUTS (Each agent writes to its own field)
+    # AGENT OUTPUTS
     # ========================================================================
     
     validation: Optional[Dict[str, Any]]
     """
-    Output from Validator Agent
-    Example:
-    {
-        "is_valid": true,
-        "owner": "user",
-        "repo_name": "awesome-project",
-        "size_kb": 45000,
-        "language": "Python",
-        "has_readme": true
-    }
+    Output from Validator Agent: Repo metadata and accessibility status.
     """
     
-    scan_metrics: Optional[Dict[str, Any]]
+    scan_metrics: Dict[str, Any]
     """
-    Output from Scanner Agent
-    Example:
-    {
-        "ncrf": {
-            "total_sloc": 5000,
-            "estimated_learning_hours": 50.5,
-            "ncrf_base_credits": 1.68
-        },
-        "markers": {
-            "has_tests": true,
-            "has_docker": false,
-            "uses_async": true
-        }
-    }
+    Output from Scanner Agent (NCrF Layer).
+    Must include:
+    - ncrf: { total_sloc, estimated_learning_hours, ncrf_base_credits }
+    - sample_files: List[Dict] (Raw content of top 3-5 critical files)
+    - markers: { has_tests, has_ci_cd, uses_async, etc. }
     """
     
-    sfia_result: Optional[Dict[str, Any]]
+    validation_result: Dict[str, Any]
     """
-    Output from Grader Agent
-    Example:
-    {
-        "sfia_level": 4,
-        "level_name": "Enable",
-        "confidence": 0.92,
-        "reasoning": "Code shows OOP patterns and testing",
-        "evidence": ["Unit tests found", "Class-based design"],
-        "retry_count": 0
-    }
+    Output from Bayesian Validator (Statistical Prior).
+    Contains: { bayesian_best_estimate, confidence, expected_range }
+    """
+
+    semantic_report: Optional[Dict[str, Any]]
+    """
+    Output from Reviewer Agent (Architectural Forensics).
+    Contains: { key_insight, sophistication_score, key_strengths, key_weaknesses }
+    """
+
+    semantic_multiplier: float
+    """Qualitative adjustment from Reviewer Agent (0.5 - 1.5)"""
+    
+    sfia_result: Dict[str, Any]
+    """
+    Output from Grader Agent & Judge Agent.
+    Contains: { sfia_level, level_name, confidence, reasoning }
+    - Judge Agent will update these fields with its final verdict.
+    - Judge adds: { judge_summary, judge_justification, is_congruent }
     """
     
     audit_result: Optional[Dict[str, Any]]
     """
-    Output from Auditor Agent
-    Example:
-    {
-        "reality_check_passed": true,
-        "github_actions_status": "success",
-        "penalty_applied": false
-    }
-    """
-    
-    final_credits: Optional[float]
-    """Final calculated credits (set by Reporter Agent)"""
-
-    validation_result: Optional[Dict[str, Any]]
-    """
-    Output from Bayesian Validator (Statistical Prior).
-    Used by the Judge Agent to determine if the Grader is hallucinating.
-    Example:
-    {
-        "bayesian_best_estimate": 3,
-        "confidence": 0.85,
-        "expected_range": [2, 3],
-        "reasoning": "Metrics suggest Level 3"
-    }
+    Output from Auditor Agent: Result of the CI/CD build check.
     """
     
     # ========================================================================
-    # OBSERVABILITY
+    # FINAL VERDICTS
+    # ========================================================================
+    final_credits: Optional[float]
+    """Final calculated credits: NCrF_Base * SFIA_Mult * Semantic_Mult * Reality_Mult"""
+
+    # ========================================================================
+    # OBSERVABILITY & METADATA
     # ========================================================================
     opik_trace_id: Optional[str]
-    """Opik trace ID for full transparency"""
+    """Opik trace ID for immutable reasoning proof"""
     
     errors: Annotated[List[str], operator.add]
-    """
-    Accumulated errors from all agents.
-    Using operator.add means each agent can append to this list.
-    """
+    """Accumulated errors from all agents."""
     
-    # ========================================================================
-    # METADATA
-    # ========================================================================
     started_at: Optional[str]
     """ISO timestamp when analysis started"""
     
     completed_at: Optional[str]
     """ISO timestamp when analysis completed"""
     
-    # ========================================================================
-    # CONTROL FLOW (Used by routing logic)
-    # ========================================================================
     should_skip: bool
-    """Flag to skip remaining agents if validation fails"""
+    """Flag to stop the workflow if validation fails"""
     
     skip_reason: Optional[str]
-    """Reason for skipping (e.g., "Repo too large")"""
+    """Explanation for workflow termination"""
 
 
 # ============================================================================
@@ -160,49 +126,43 @@ def create_initial_state(
     user_github_token: Optional[str] = None
 ) -> AnalysisState:
     """
-    Creates the initial state for a new analysis job
+    Creates the initial state for a new analysis job.
+    Initializes all dictionary-based outputs to empty objects to prevent None errors.
     """
     return AnalysisState(
-        # Input
         repo_url=repo_url,
         user_id=user_id,
         job_id=job_id,
         user_github_token=user_github_token,
-        
-        # Progress
         current_step="validator",
         progress=0,
-        
-        # Agent outputs - ✅ Use empty dicts to prevent None errors
         validation=None,
-        scan_metrics=None,
-        sfia_result={},  # ✅ FIXED: Empty dict instead of None
+        scan_metrics={}, 
+        validation_result={},
+        semantic_report=None,
+        semantic_multiplier=1.0,
+        sfia_result={},
         audit_result=None,
         final_credits=None,
-        validation_result={},  # ✅ FIXED: Empty dict instead of None
-        
-        # Observability
         opik_trace_id=None,
         errors=[],
-        
-        # Metadata
         started_at=datetime.utcnow().isoformat(),
         completed_at=None,
-        
-        # Control flow
         should_skip=False,
         skip_reason=None
     )
+
 def get_progress_for_step(step: str) -> int:
     """
-    Maps agent step to progress percentage
+    Maps agent step to progress percentage for frontend visualization.
     """
     progress_map = {
         "validator": 10,
-        "scanner": 40,
+        "scanner": 30,
+        "reviewer": 50,  # Dedicated progress slot for Semantic Review
         "grader": 70,
-        "judge": 80,     # Added Judge step
-        "auditor": 85,
+        "judge": 85,     # The heavy lifting of arbitration
+        "auditor": 90,
         "reporter": 95,
         "complete": 100
     }

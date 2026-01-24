@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "llama-3.3-70b-versatile"  # Groq model
     LLM_BASE_URL: str = "https://api.groq.com/openai/v1"
     LLM_TEMPERATURE: float = 0.1
-
+    GEMINI_API_KEY: str
     OPIK_API_KEY: str = ""
     OPIK_WORKSPACE: str = ""
     OPIK_PROJECT_NAME: str = "skillprotocol"

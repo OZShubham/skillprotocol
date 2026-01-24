@@ -159,38 +159,32 @@ class BayesianSFIAValidator:
             "reasoning": reasoning
         }
     
-    def _infer_level_distribution(
-        self,
-        metrics: Dict[str, Any],
-        git_stability: float
-    ) -> Dict[int, float]:
-        """
-        Bayesian inference: P(Level | Evidence)
-        """
-        
+    def _infer_level_distribution(self, metrics: Dict[str, Any], git_stability: float) -> Dict[int, float]:
         # Extract evidence
         avg_mi = metrics.get("ncrf", {}).get("avg_mi", 65.0)
         complexity_density = metrics.get("ncrf", {}).get("complexity_density", 0.15)
         has_tests = metrics.get("markers", {}).get("has_tests", False)
         
+        # ✅ ADD: Quality multiplier as signal
+        quality_mult = metrics.get("quality_multiplier", 1.0)
+        
         log_posteriors = {}
         
         for level in SFIA_LEVELS:
-            # Start with prior
             log_p = math.log(PRIORS[level])
             
-            # Likelihood: Maintainability Index
+            # Existing likelihoods...
             log_p += log_gaussian(avg_mi, MI_MEANS[level], MI_STD)
-            
-            # Likelihood: Complexity density
             log_p += log_gaussian(complexity_density, COMPLEXITY_MEANS[level], COMPLEXITY_STD)
-            
-            # Likelihood: Test presence
             log_p += log_bernoulli(has_tests, TEST_PROBABILITIES[level])
             
-            # Likelihood: Git stability
             if git_stability > 0:
                 log_p += log_gaussian(git_stability, GIT_STABILITY_MEANS[level], GIT_STD)
+            
+            # ✅ ADD: Quality multiplier signal
+            # Higher quality → higher level probability
+            quality_boost = (quality_mult - 1.0) * 2.0  # Convert 0.8-1.5 range to -0.4 to 1.0
+            log_p += quality_boost
             
             log_posteriors[level] = log_p
         
