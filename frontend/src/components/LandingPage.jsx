@@ -1,32 +1,34 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { ArrowRight, Github, ShieldCheck, Database, Search } from 'lucide-react'
+import { 
+  ArrowRight, Github, ShieldCheck, Database, Search, 
+  Cpu, Lock, Code2, Scale, Terminal, CheckCircle2, 
+  Workflow, Zap, Binary, Layers 
+} from 'lucide-react'
+import { motion } from 'framer-motion'
 import { api } from '../services/api'
 
-export default function LandingPage({ onStartAnalysis, onUserDetected, currentUser }) {
+export default function LandingPage({ onStartAnalysis, onUserDetected }) {
   const [repoUrl, setRepoUrl] = useState('')
   const [githubToken, setGithubToken] = useState('')
   const [showTokenInput, setShowTokenInput] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   
-  const location = useLocation() // Get navigation state
+  const location = useLocation()
 
-  // Check if we were sent back here to retry with a token (Private Repo Flow)
   useEffect(() => {
     if (location.state?.requestToken) {
       setShowTokenInput(true)
-      setError('Please enter your GitHub token to access this private repository.')
+      setError('Private repository detected. Token required.')
     }
     if (location.state?.repoUrl) {
       setRepoUrl(location.state.repoUrl)
     }
   }, [location.state])
 
-  // Helper to extract username from "https://github.com/username/repo"
   const extractOwner = (url) => {
     try {
-      // Remove protocol and www
       const clean = url.replace(/^https?:\/\/(www\.)?github\.com\//, '').replace(/^github\.com\//, '')
       const parts = clean.split('/')
       return parts[0] || null
@@ -37,18 +39,16 @@ export default function LandingPage({ onStartAnalysis, onUserDetected, currentUs
 
   const handleAnalyze = async () => {
     if (!repoUrl) {
-      setError('Please enter a GitHub repository URL')
+      setError('Repository URL required')
       return
     }
 
-    // 1. DETECT USER INSTANTLY
     const owner = extractOwner(repoUrl)
     
     if (owner) {
-      // Tell App.jsx to switch context to this user
       onUserDetected(owner) 
     } else {
-      setError('Invalid GitHub URL format. Expected: github.com/username/repo')
+      setError('Invalid GitHub URL')
       return
     }
 
@@ -56,19 +56,13 @@ export default function LandingPage({ onStartAnalysis, onUserDetected, currentUs
     setError('')
 
     try {
-      // 2. SEND TO API
-      // Important: We use the detected 'owner' as the 'user_id' for the backend
       const tokenToSend = githubToken.trim() || null
       const data = await api.analyzeRepo(repoUrl, owner, tokenToSend)
-      
       onStartAnalysis(data.job_id)
-      
     } catch (err) {
       const errorMsg = err.message || 'Analysis failed'
-      
-      // Smart error handling for private repos
       if (errorMsg.toLowerCase().includes('private') || errorMsg.toLowerCase().includes('not found')) {
-        setError(`Repo not found or private. We need a token to access ${owner}'s code.`)
+        setError(`Private repo detected. Access token needed for ${owner}.`)
         setShowTokenInput(true)
       } else {
         setError(errorMsg)
@@ -79,112 +73,238 @@ export default function LandingPage({ onStartAnalysis, onUserDetected, currentUs
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-20 relative z-10">
+    <div className="relative overflow-hidden min-h-[calc(100vh-4rem)]">
       
-      {/* Hero Section */}
-      <div className="text-center max-w-3xl mx-auto mb-20">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/5 text-xs text-text-muted mb-6 font-mono">
-          <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-          SYSTEM OPERATIONAL
-        </div>
-        
-        <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-white mb-6">
-          Proof of <span className="text-white">Work.</span><br />
-          <span className="text-primary">Verified.</span>
-        </h1>
-        
-        <p className="text-lg text-text-muted mb-10 leading-relaxed max-w-2xl mx-auto">
-          The first specialized agentic workflow for minting NCrF & SFIA skill credits directly from your commit history. Backed by Opik traces.
-        </p>
+      {/* Tighter Background Decor */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary/5 blur-[80px] rounded-full pointer-events-none" />
 
-        {/* Input Bar */}
-        <div className="flex flex-col gap-4 max-w-xl mx-auto">
-          <div className="flex bg-panel border border-border p-1.5 rounded-xl shadow-2xl shadow-primary/5 focus-within:border-primary/50 focus-within:shadow-primary/20 transition-all">
-            <div className="flex items-center pl-4 text-text-dim">
-              <Github className="w-5 h-5" />
+      <div className="max-w-6xl mx-auto px-4 py-12 relative z-10">
+        
+        {/* --- COMPACT HERO --- */}
+        <div className="text-center max-w-3xl mx-auto mb-16">
+          
+          <motion.div 
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-primary/20 bg-primary/5 text-[10px] text-primary mb-4 font-mono font-bold tracking-tight uppercase"
+          >
+            <Zap className="w-3 h-3" />
+            V2.0 STABLE
+          </motion.div>
+          
+          <motion.h1 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="text-4xl md:text-6xl font-bold tracking-tight text-text-main mb-4 leading-tight"
+          >
+            Code to Credits. <br className="hidden md:block" />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-orange-600">Mathematically Verified.</span>
+          </motion.h1>
+          
+          <motion.p 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="text-base md:text-lg text-text-muted mb-8 leading-relaxed max-w-xl mx-auto"
+          >
+            The first <strong>Agentic Auditor</strong>. We parse your AST, anchor results with Bayesian statistics, and mint SFIA-standard credits backed by immutable proof traces.
+          </motion.p>
+
+          {/* COMPACT INPUT */}
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.3 }}
+            className="flex flex-col gap-2 max-w-md mx-auto relative"
+          >
+            <div className="flex bg-panel border border-border p-1 rounded-lg shadow-lg shadow-primary/5 focus-within:border-primary/50 transition-all items-center">
+              <div className="flex items-center pl-3 text-text-dim">
+                <Github className="w-4 h-4" />
+              </div>
+              <input 
+                type="text" 
+                placeholder="github.com/username/repo"
+                className="flex-1 bg-transparent border-none text-text-main px-3 py-2 focus:outline-none font-mono text-xs md:text-sm placeholder:text-text-dim"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
+              />
+              <button 
+                onClick={handleAnalyze}
+                disabled={loading}
+                className="bg-primary hover:bg-orange-600 text-white font-bold px-4 py-1.5 rounded-md transition-colors flex items-center gap-1.5 disabled:opacity-50 text-xs shadow-sm"
+              >
+                {loading ? (
+                  <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>Verify <ArrowRight className="w-3 h-3" /></>
+                )}
+              </button>
             </div>
-            <input 
-              type="text" 
-              placeholder="github.com/username/repository"
-              className="flex-1 bg-transparent border-none text-white px-4 py-3 focus:outline-none font-mono text-sm placeholder:text-text-dim"
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
-            />
-            <button 
-              onClick={handleAnalyze}
-              disabled={loading}
-              className="bg-white text-black hover:bg-gray-200 font-semibold px-6 py-2 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
-            >
-              {loading ? 'Scanning...' : 'Verify'}
-              {!loading && <ArrowRight className="w-4 h-4" />}
-            </button>
+
+            {/* Private Token Field */}
+            {showTokenInput && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="bg-panel border border-primary/30 p-3 rounded-lg text-left shadow-sm"
+              >
+                <div className="flex items-center gap-2 mb-1.5 text-primary text-[10px] font-bold uppercase tracking-wide">
+                  <Lock className="w-3 h-3" /> Private Access
+                </div>
+                <input 
+                  type="password"
+                  placeholder="ghp_... (Personal Access Token)"
+                  className="w-full bg-surface border border-border text-text-main px-3 py-1.5 rounded focus:outline-none focus:border-primary/50 font-mono text-xs"
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                />
+              </motion.div>
+            )}
+
+            {error && (
+              <div className="text-error text-[10px] font-mono bg-error/5 border border-error/20 p-2 rounded text-left flex items-center gap-2">
+                <ShieldCheck className="w-3 h-3" /> {error}
+              </div>
+            )}
+          </motion.div>
+        </div>
+
+        {/* --- THE AGENT SWARM (Grid) --- */}
+        <div className="mb-16">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="h-px bg-border flex-1" />
+            <span className="text-[10px] font-mono text-text-dim uppercase tracking-widest bg-panel px-2 border border-border rounded">The Verification Chain</span>
+            <div className="h-px bg-border flex-1" />
           </div>
 
-          {/* Token Input (Conditional) */}
-          {showTokenInput && (
-            <div className="animate-in fade-in slide-in-from-top-2">
-              <input 
-                type="password"
-                placeholder="ghp_... (Private Repo Token)"
-                className="w-full bg-panel border border-primary/30 text-white px-4 py-3 rounded-xl focus:outline-none font-mono text-sm placeholder:text-text-dim"
-                value={githubToken}
-                onChange={(e) => setGithubToken(e.target.value)}
-              />
-              <p className="text-xs text-text-muted mt-2 text-left">
-                * Your token is never stored. Used once for cloning.
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <AgentCard 
+              name="Scanner" 
+              role="Forensic Extraction" 
+              desc="Clones repo, builds AST, counts SLOC & complexity nodes." 
+              icon={Terminal} 
+            />
+            <AgentCard 
+              name="Reviewer" 
+              role="Semantic Analysis" 
+              desc="Identifies architectural patterns (CQRS, MVC) & code smells." 
+              icon={Search} 
+            />
+            <AgentCard 
+              name="Grader" 
+              role="SFIA Assessment" 
+              desc="Maps technical metrics to SFIA Levels 1-5 capability scale." 
+              icon={Scale} 
+            />
+            <AgentCard 
+              name="Judge" 
+              role="Arbitration" 
+              desc="Resolves conflicts between statistical priors & agent findings." 
+              icon={ShieldCheck} 
+            />
+            <AgentCard 
+              name="Auditor" 
+              role="Reality Check" 
+              desc="Verifies GitHub Actions/CI logs to ensure code builds." 
+              icon={CheckCircle2} 
+            />
+            <AgentCard 
+              name="Reporter" 
+              role="Minting" 
+              desc="Calculates final credits & commits immutable Opik trace." 
+              icon={Database} 
+            />
+          </div>
+        </div>
+
+        {/* --- LOGIC KERNEL (Terminal View) --- */}
+        <div className="grid md:grid-cols-3 gap-6 mb-16">
+          {/* Left: The Math */}
+          <div className="md:col-span-2 bg-panel border border-border rounded-xl p-6 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10">
+              <Binary className="w-32 h-32 text-text-dim" />
+            </div>
+            <h3 className="text-sm font-bold text-text-main mb-4 flex items-center gap-2">
+              <Cpu className="w-4 h-4 text-primary" />
+              Scoring Logic
+            </h3>
+            <div className="font-mono text-[10px] md:text-xs text-text-dim bg-surface border border-border p-4 rounded-lg leading-relaxed">
+              <span className="text-primary">// 1. NCrF Calculation</span><br/>
+              base_credits = (sloc * complexity_weight) / 30_hours<br/><br/>
+              <span className="text-primary">// 2. Multiplier Pipeline</span><br/>
+              final_score = base<br/>
+              &nbsp;&nbsp;* <span className="text-text-main">sfia_mult[level]</span> &nbsp;&nbsp;&nbsp;<span className="opacity-50"># 0.5x - 1.7x</span><br/>
+              &nbsp;&nbsp;* <span className="text-text-main">quality_mult</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span className="opacity-50"># Static Analysis</span><br/>
+              &nbsp;&nbsp;* <span className="text-text-main">reality_mult</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span className="opacity-50"># CI/CD Status (0.5x if fail)</span><br/><br/>
+              <span className="text-success">&gt; VERIFIED_HASH: 0x7f...3a9</span>
+            </div>
+          </div>
+
+          {/* Right: Bayesian Logic */}
+          <div className="bg-panel border border-border rounded-xl p-6 flex flex-col justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-text-main mb-2 flex items-center gap-2">
+                <Workflow className="w-4 h-4 text-purple-400" />
+                Bayesian Guard
+              </h3>
+              <p className="text-xs text-text-muted leading-relaxed">
+                We anchor LLM hallucinations using statistical priors.
               </p>
             </div>
-          )}
-
-          {error && (
-            <div className="text-error text-sm font-mono bg-error/10 border border-error/20 p-3 rounded-lg text-left">
-              ! {error}
+            <div className="mt-4 pt-4 border-t border-border space-y-2">
+              <div className="flex justify-between text-[10px] text-text-dim">
+                <span>Metrics Input</span>
+                <span>Prior Probability</span>
+              </div>
+              <div className="h-1.5 w-full bg-surface rounded-full overflow-hidden">
+                <div className="h-full bg-purple-500 w-[80%]" />
+              </div>
+              <div className="text-[10px] font-mono text-text-muted text-right">
+                Confidence: 92.4%
+              </div>
             </div>
-          )}
+          </div>
+        </div>
+
+        {/* Footer */}
+<div className="mt-24 pt-10 border-t border-border text-center">
+  <div className="flex justify-center gap-6 mb-6">
+    <span className="text-text-dim hover:text-text-main cursor-pointer transition-colors">Manifesto</span>
+    
+    {/* ADD LINK HERE */}
+    <a href="/methodology" className="text-text-dim hover:text-text-main cursor-pointer transition-colors">
+      Methodology
+    </a>
+    
+    <span className="text-text-dim hover:text-text-main cursor-pointer transition-colors">Opik</span>
+  </div>
+  <p className="text-text-dim text-xs font-mono">
+    SECURED BY SKILLPROTOCOL · OPIK OBSERVABILITY · Multi LLM 
+  </p>
+</div>
+      </div>
+    </div>
+  )
+}
+
+// Compact Card Component
+function AgentCard({ name, role, desc, icon: Icon }) {
+  return (
+    <div className="bg-surface border border-border p-4 rounded-lg hover:border-primary/30 transition-colors group">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="w-8 h-8 rounded bg-panel border border-border flex items-center justify-center text-text-muted group-hover:text-primary transition-colors">
+          <Icon className="w-4 h-4" />
+        </div>
+        <div>
+          <div className="text-xs font-bold text-text-main">{name}</div>
+          <div className="text-[10px] font-mono text-text-dim uppercase">{role}</div>
         </div>
       </div>
-
-      {/* Bento Grid Features */}
-      <div className="grid md:grid-cols-3 gap-4 auto-rows-[220px]">
-        
-        {/* Large Feature */}
-        <div className="md:col-span-2 row-span-2 bg-panel border border-border rounded-2xl p-8 relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-8 opacity-20 group-hover:opacity-40 transition-opacity">
-            <Database className="w-48 h-48 text-text-dim" />
-          </div>
-          <div className="h-full flex flex-col justify-between relative z-10">
-            <div>
-              <h3 className="text-xl font-bold text-white mb-2">Deep Code Analysis</h3>
-              <p className="text-text-muted max-w-md">Our Scanner Agent clones your repository and builds an AST (Abstract Syntax Tree) to measure true algorithmic complexity, not just lines of code.</p>
-            </div>
-            <div className="font-mono text-xs text-primary bg-primary/5 border border-primary/20 p-4 rounded-lg max-w-sm mt-8">
-              &gt; detecting_patterns...<br/>
-              &gt; found: Dockerfile, CI/CD, Async/Await<br/>
-              &gt; complexity_score: 8.9/10
-            </div>
-          </div>
-        </div>
-
-        {/* Small Feature 1 */}
-        <div className="bg-panel border border-border rounded-2xl p-6 flex flex-col justify-between group hover:border-border-strong transition-colors">
-          <ShieldCheck className="w-10 h-10 text-success" />
-          <div>
-            <h3 className="font-bold text-white mb-1">Reality Check</h3>
-            <p className="text-sm text-text-muted">We verify GitHub Actions to ensure code actually builds.</p>
-          </div>
-        </div>
-
-        {/* Small Feature 2 */}
-        <div className="bg-panel border border-border rounded-2xl p-6 flex flex-col justify-between group hover:border-border-strong transition-colors">
-          <Search className="w-10 h-10 text-primary" />
-          <div>
-            <h3 className="font-bold text-white mb-1">Opik Tracing</h3>
-            <p className="text-sm text-text-muted">Every credit minted is cryptographically linked to a reasoning trace.</p>
-          </div>
-        </div>
-
-      </div>
+      <p className="text-[11px] text-text-muted leading-snug">
+        {desc}
+      </p>
     </div>
   )
 }

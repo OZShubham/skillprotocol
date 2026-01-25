@@ -94,28 +94,32 @@ export const api = {
     }
   },
 
-  /**
-   * 6. Submit Human Feedback (Thumbs Up/Down)
-   */
-  submitFeedback: async (jobId, score, comment = null) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/feedback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          job_id: jobId,
-          score: score,
-          comment: comment
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to submit feedback');
-      }
-      return await response.json();
-    } catch (error) {
-      console.error('Feedback API Error:', error);
-      throw error;
-    }
+/**
+ * 6. Submit Human Feedback (Thumbs Up/Down)
+ */
+submitFeedback: async (jobId, score, comment = null) => {
+  console.log("Sending Feedback Payload:", { job_id: jobId, score, comment }); // DEBUG
+  try {
+    const response = await fetch(`${API_BASE_URL}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_id: jobId,   
+        score: score,      
+        comment: comment   
+      })
+    });
+    
+    if (!response.ok) {
+    const errorData = await response.json();
+    // Stringify the error detail so it's readable in the console
+    throw new Error(JSON.stringify(errorData.detail) || 'Failed to submit feedback');
+}
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Feedback API Error:', error);
+    throw error;
   }
+}
 };
