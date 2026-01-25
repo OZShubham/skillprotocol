@@ -1,89 +1,205 @@
-# SkillProtocol
+This is the **Definitive Technical Manifesto**.
 
-SkillProtocol is an AI-powered verification platform that analyzes GitHub repositories to validate developer skills. It uses a multi-agent workflow to clone repositories, calculate complexity metrics (NCrF), and assess competency levels based on the SFIA framework.
+I have expanded the `README.md` into a comprehensive document that explains the **mathematical models**, **agentic reasoning**, and **economic value** of the platform in deep detail. It serves as both documentation and a whitepaper.
 
-## Overview
+---
 
-The system provides an objective, data-driven way to verify coding ability. Instead of relying on self-reported skills, it examines the actual codebase to determine:
-* **Complexity:** Code structure, architectural patterns, and depth.
-* **Competency:** Use of industry standards (CI/CD, Testing, Docker, Async).
-* **Consistency:** Verified history of code contributions.
+# SkillProtocol 🛡️
 
-## Key Features
+> **The Universal Standard for Engineering Capability.**
+> SkillProtocol is an Agentic Auditor that converts raw GitHub code into **liquid, verified skill credits**. We replace subjective resume scanning with forensic AST parsing, Bayesian probability, and a 6-agent swarm.
 
-* **Multi-Language Analysis:** Supports Python, JavaScript, TypeScript, Go, Rust, Java, PowerShell, Shell, and Jupyter Notebooks.
-* **Agentic Workflow:** Orchestrates five specialized AI agents (Validator, Scanner, Grader, Auditor, Reporter) to perform deep analysis.
-* **Dynamic Context Switching:** Automatically detects the repository owner and switches the dashboard context, isolating data per user.
-* **Smart Deduplication:** Tracks Git commit hashes to prevent duplicate scoring of the same code version while allowing credit for legitimate updates.
-* **Full Observability:** Integrated with Opik to provide immutable audit trails for every credit awarded.
+---
 
-## Architecture
+## 🎯 The Three-Fold Impact
 
-The application is built as a decoupled full-stack system:
+SkillProtocol aligns incentives across the entire engineering ecosystem, solving the "Trust Gap" in technical hiring.
 
-1.  **Frontend (React + Vite):** A responsive interface that handles user input, visualizes the analysis process in real-time, and displays the user's skill topology.
-2.  **Backend (FastAPI + LangGraph):** The core engine that manages the agent state machine. It handles:
-    * **Validator Agent:** Verifies repository access and metadata.
-    * **Scanner Agent:** Securely clones code and parses ASTs (Abstract Syntax Trees) for metrics.
-    * **Grader Agent:** Evaluates code quality against the SFIA rubric.
-    * **Reporter Agent:** Finalizes scores and commits data to the persistent ledger.
-3.  **Database (PostgreSQL):** Stores user profiles, analysis history, and the immutable credit ledger.
+### 1. For Developers: **"Liquid Skills"**
 
-## Getting Started
+Stop writing resumes that nobody reads. Connect your GitHub, and let our agents mine your commit history to generate a **Cryptographically Signed Certificate**.
+
+* **Benefit:** Convert your late-night coding sessions into **NCrF-standard credits** (National Credit Framework) that act as a universal currency for your expertise.
+* **Outcome:** A verified portfolio that proves you can *build*, not just interview.
+
+### 2. For Employers: **"Zero-Trust Hiring"**
+
+Resumes are exaggerated. LeetCode is memorization. SkillProtocol allows you to hire based on **Forensic Evidence**.
+
+* **Benefit:** Verify if a candidate *actually* knows Async/Await patterns, CI/CD pipelines, or microservices architecture by auditing their real-world code.
+* **Outcome:** Reduce bad hires by validating practical engineering capability before the first interview.
+
+### 3. For the Ecosystem: **"The Truth Standard"**
+
+We replace subjective opinions with objective, reproducible math.
+
+* **Benefit:** By combining **Tree-sitter AST parsing** with **Bayesian Probability**, we create a universal language for technical skill that translates across borders, universities, and companies.
+* **Outcome:** A transparent, meritocratic standard for the software industry.
+
+---
+
+## 🏗️ Architecture: The Agent Swarm
+
+The system is not a simple script. It is an intelligent state machine orchestrated by **LangGraph**, where data flows through a board of specialized AI agents.
+
+```mermaid
+flowchart LR
+    User[React Frontend] -->|Repo URL| API[FastAPI Gateway]
+    API -->|Job ID| Validator
+    
+    subgraph "The Agent Swarm (LangGraph)"
+        Validator[🛡️ Validator] -->|Valid| Scanner[terminal Scanner]
+        Scanner -->|AST Metrics| Reviewer[👁️ Reviewer]
+        Reviewer -->|Forensics| Grader[⚖️ Grader]
+        Grader -->|Assessment| Judge[🧠 Judge]
+        
+        Judge -->|Verdict| Auditor[✅ Auditor]
+        Auditor -->|CI/CD Check| Reporter[📝 Reporter]
+    end
+    
+    Reporter -->|Log Trace| Opik[Opik Observability]
+    Reporter -->|Mint Credits| DB[(PostgreSQL)]
+
+```
+
+### The 6-Agent Roles
+
+| Agent | Technology | Responsibility |
+| --- | --- | --- |
+| **1. Validator** | Regex & GitHub API | **The Gatekeeper.** Validates repository accessibility, checks size limits (to prevent DoS), and detects privacy settings. If a repo is private, it securely requests a token. |
+| **2. Scanner** | **Tree-sitter** (C Bindings) | **The Eye.** Clones the repo to a secure sandbox. Parses code into an Abstract Syntax Tree (AST) to count logical nodes (Loops, Classes, Functions) while ignoring whitespace/comments. |
+| **3. Reviewer** | Gemini 3 Flash | **The Architect.** Performs semantic analysis on the code structure. Detects design patterns (Singleton, Factory) vs. anti-patterns (God Objects, Hardcoded Secrets). |
+| **4. Grader** | SFIA Framework | **The Assessor.** Maps the technical metrics to the **SFIA (Skills Framework for the Information Age)** levels. Determines if the code is Level 1 (Follow) or Level 5 (Ensure). |
+| **5. Judge** | **Bayesian Inference** | **The Supreme Court.** Reconciles the Grader's qualitative opinion with the Scanner's quantitative data. If the math says "Level 2" but the LLM says "Level 5", the Judge intervenes to prevent hallucination. |
+| **6. Auditor** | GitHub Actions API | **The Skeptic.** Verifies if the code actually runs. Queries CI/CD logs to check build status. If tests fail, it applies a **0.5x penalty** to the final score. |
+
+---
+
+## 🧮 The Scoring Protocol
+
+We use the **NCrF (National Credit Framework)** standard: **30 Learning Hours = 1 Credit**.
+
+### The Core Equation
+
+Our credit calculation is deterministic and transparent:
+
+### 1. Base NCrF ()
+
+Derived from **Tree-sitter** complexity nodes. We estimate "Learning Hours" based on the cognitive load of the code:
+
+* **Simple Logic:** 2 hours / 100 LOC
+* **Moderate Logic:** 5 hours / 100 LOC
+* **Complex Algorithms:** 10 hours / 100 LOC
+
+### 2. Capability Multiplier ()
+
+Based on the **SFIA Level** assigned by the Judge Agent:
+
+* **Level 1 (Follow):**  (Basic scripting)
+* **Level 3 (Apply):**  (Professional baseline)
+* **Level 5 (Ensure):**  (Production architecture)
+
+### 3. Quality Multiplier ()
+
+Derived from the Reviewer Agent's forensic analysis:
+
+* **Spaghetti Code:** 
+* **Standard Code:** 
+* **Clean Architecture:** 
+
+### 4. Reality Multiplier ()
+
+A binary check by the Auditor Agent:
+
+* **Build Passes:** 
+* **Build Fails / No CI:**  (Code that doesn't run is worth half)
+
+---
+
+## 🚀 Key Features
+
+* **Polyglot Radar:** A dynamic visualization of your expertise across languages. It normalizes code volume across verbose languages (Java) and dense languages (Python) to show a true skill profile.
+* **Protocol Duality:** A stunning UI that adapts to your environment—switching seamlessly between **"Void"** (Cyber-Industrial Dark) and **"Paper"** (Professional Light) modes.
+* **Data Flywheel (RLHF):** The system learns. When users "Agree" or "Disagree" with a verdict, the data feeds into the **Opik Optimizer**, creating a feedback loop that retrains our prompts for higher accuracy.
+* **Verification Chain:** A transparent UI showing exactly which agent made which decision. Users can see the exact reasoning trace for every credit minted.
+
+---
+
+## 🛠️ Tech Stack
+
+### **Backend (`/backend`)**
+
+* **Framework:** FastAPI (Python 3.11+) - Async, high-performance API.
+* **Database:** PostgreSQL (AsyncPG + SQLAlchemy) - Robust, concurrent data storage.
+* **Orchestration:** LangChain / LangGraph - State machine for agentic workflows.
+* **Analysis:** `tree-sitter` - High-speed, error-tolerant AST parsing.
+* **Observability:** Opik - Tracing, evaluation, and prompt optimization.
+* **AI Models:** Google Gemini 3 Flash (Reasoning), Groq Llama 3 (Speed).
+
+### **Frontend (`/frontend`)**
+
+* **Framework:** React 19 + Vite - Next-gen frontend performance.
+* **Styling:** Tailwind CSS v4 - Semantic variable theming.
+* **Animations:** Framer Motion - Smooth, physics-based transitions.
+* **Visualization:** Recharts - Professional data visualization components.
+
+---
+
+## ⚡ Getting Started
 
 ### Prerequisites
-* Node.js (v18+)
-* Python (v3.10+)
-* PostgreSQL
-* Git (Required on the host machine for cloning)
 
-### Installation
+* Python 3.11+
+* Node.js 18+
+* PostgreSQL Database (Local or Cloud)
+* Google Gemini API Key
+* Opik (Comet.ml) API Key
 
-1.  **Clone the repository**
-    ```bash
-    git clone [https://github.com/your-username/skill-protocol.git](https://github.com/your-username/skill-protocol.git)
-    cd skill-protocol
-    ```
+### 1. Backend Setup
 
-2.  **Backend Setup**
-    ```bash
-    cd backend
-    python -m venv venv
-    source venv/bin/activate  # Windows: venv\Scripts\activate
-    pip install -r requirements.txt
-    
-    # Configure environment
-    cp .env.example .env
-    # Add your DATABASE_URL, OPENAI/GROQ_API_KEY, and OPIK_API_KEY
-    ```
+```bash
+cd backend
 
-3.  **Frontend Setup**
-    ```bash
-    cd ../frontend
-    npm install
-    ```
+# Create Virtual Environment
+python -m venv .venv
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 
-### Running the System
+# Install Dependencies (includes Tree-sitter bindings)
+pip install -r requirements.txt
 
-1.  **Start Backend**
-    ```bash
-    uvicorn app.main:app --reload
-    ```
+# Configure Environment
+cp .env.example .env
+# --> Edit .env with your keys (GEMINI_API_KEY, OPIK_API_KEY, DATABASE_URL)
 
-2.  **Start Frontend**
-    ```bash
-    npm run dev
-    ```
+# Run Migrations
+alembic upgrade head
 
-3.  Open `http://localhost:5173` to start an analysis.
+# Start Server
+uvicorn app.main:app --reload
 
-## Usage
+```
 
-1.  **Input:** Enter any public GitHub repository URL (e.g., `github.com/torvalds/linux`).
-2.  **Analysis:** The agents will validate the repo, clone it to a secure temp directory, and analyze the code.
-3.  **Result:** You receive a verified certificate with a credit score and SFIA level.
-4.  **Dashboard:** The dashboard updates to show the history and metrics for that specific GitHub user.
+### 2. Frontend Setup
 
-## License
+```bash
+cd frontend
 
-MIT License
+# Install Dependencies
+npm install
+
+# Start Development Server
+npm run dev
+
+```
+
+Visit `http://localhost:5173` to access the Protocol.
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. See `LICENSE` for more information.
+
+<p align="center">
+<span style="color: #A1A1AA; font-family: monospace;">SECURED BY SKILLPROTOCOL · OPIK OBSERVABILITY</span>
+</p>
