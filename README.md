@@ -1,9 +1,3 @@
-This is the **Definitive Technical Manifesto**.
-
-I have expanded the `README.md` into a comprehensive document that explains the **mathematical models**, **agentic reasoning**, and **economic value** of the platform in deep detail. It serves as both documentation and a whitepaper.
-
----
-
 # SkillProtocol 🛡️
 
 > **The Universal Standard for Engineering Capability.**
