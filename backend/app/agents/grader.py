@@ -1,5 +1,5 @@
 """
-Grader Agent - FIXED FOR GROK + OPIK PROMPT
+Grader Agent 
 Performs initial SFIA assessment using statistical anchoring and forensic exhibits.
 """
 
@@ -145,7 +145,7 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         # STEP 3: CALL GROK LLM
         # ====================================================================
         client = AsyncOpenAI(
-            api_key=settings.GROQ_API_KEY,  # Fixed typo (was GROQ_API_KEY)
+            api_key=settings.GROQ_API_KEY, 
             base_url=settings.LLM_BASE_URL
         )
         

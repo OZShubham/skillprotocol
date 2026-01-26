@@ -2,21 +2,19 @@
 # FILE: backend/app/evaluation/runner.py
 # ============================================================================
 """
-Main Evaluation Runner - Executes tests and generates reports with Groq integration
+Main Evaluation Runner - Executes tests and generates reports with Gemini integration
 """
 
 import opik
 from opik import Opik, track
-from opik.integrations.openai import track_openai
+from opik.evaluation import evaluate
 import asyncio
 import json
 import os
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
-from openai import OpenAI
 
-from app.evaluation.golden_dataset import GOLDEN_REPOS, validate_golden_dataset
 # CHANGE: Import the classes, not functions
 from app.evaluation.metrics import (
     SfiaLevelAccuracy,
@@ -29,96 +27,90 @@ from app.core.opik_config import OpikManager, PROJECTS, log_evaluation_trace
 
 
 class SkillProtocolEvaluationRunner:
-    """Evaluation runner with Groq integration and correct project routing"""
+    """Evaluation runner with Gemini integration and Opik's evaluation framework"""
     
     def __init__(self):
         # Use eval project
         self.client = OpikManager.get_client(PROJECTS["eval"])
         self.project_name = PROJECTS["eval"]
 
-        # Initialize Groq client with OpenAI compatibility
-        self.groq_client = OpenAI(
-            api_key=os.environ.get("GROQ_API_KEY"),
-            base_url="https://api.groq.com/openai/v1",
-        )
-        # Track with Opik for observability
-        self.groq_client = track_openai(self.groq_client)
+        # Set up Gemini API key
+        if "GOOGLE_API_KEY" not in os.environ and "GEMINI_API_KEY" not in os.environ:
+            raise ValueError("Please set GOOGLE_API_KEY or GEMINI_API_KEY environment variable")
 
-        # CHANGE: Instantiate the metric classes with Groq models
+        # CHANGE: Update metrics to use Gemini models
         self.metrics = [
-            SfiaLevelAccuracy(model="groq/llama3-70b-8192"),
-            CreditRangeConsistency(model="groq/llama3-70b-8192"),
-            MarkerDetectionAccuracy(model="groq/llama3-70b-8192"),
-            ReasoningQuality(model="groq/llama3-70b-8192")
+            SfiaLevelAccuracy(model="gemini/gemma-3-27b"),
+            CreditRangeConsistency(model="gemini/gemma-3-27b"),
+            MarkerDetectionAccuracy(model="gemini/gemma-3-27b"),
+            ReasoningQuality(model="gemini/gemma-3-27b")
         ]
         
-        # Validate dataset on init
-        validate_golden_dataset()
+        # Load dataset from Opik
+        self.dataset = self.load_opik_dataset()
     
-    async def create_opik_dataset(self):
+    def load_opik_dataset(self):
         """
-        Creates the golden dataset in Opik
+        Load the golden dataset from Opik
         """
-        print(f"📦 Creating Opik dataset...")
+        print(f"📦 Loading dataset 'sfia-golden-v1' from Opik...")
         
-        # Create dataset
-        dataset = self.client.get_or_create_dataset("sfia-golden-v1")
-        
-        # Insert data
-        dataset.insert(GOLDEN_REPOS)
-        
-        print(f"✅ Dataset created with {len(GOLDEN_REPOS)} repositories")
-        return dataset
+        try:
+            # Get the existing dataset from Opik
+            dataset = self.client.get_dataset(name="sfia-golden-v1")
+            
+            # Get count of items for logging
+            dataset_items = list(dataset.get_items())
+            print(f"✅ Dataset loaded with {len(dataset_items)} repositories")
+            
+            return dataset
+            
+        except Exception as e:
+            print(f"❌ Error loading dataset: {e}")
+            print("💡 Make sure the dataset 'sfia-golden-v1' exists in your Opik workspace")
+            raise
     
     @track(name="Repository Analysis", type="tool")
     async def run_analysis_internal(
         self, 
         repo_url: str, 
         job_id: str, 
-        model: str = "groq/llama3-70b-8192"
+        model: str = "gemini/gemini-2.0-flash-lite"
     ) -> Dict[str, Any]:
         """
-        Internal method to run analysis with Groq models
+        Internal method to run analysis with Gemini models
         """
         from app.agents.graph import run_analysis
         
-        # Run the analysis with Groq model configuration
+        # Call run_analysis with only the parameters it expects
         state = await run_analysis(
             repo_url=repo_url,
             user_id="eval_user",
             job_id=job_id,
-            llm_client=self.groq_client,  # Pass Groq client
-            model=model  # Pass model name
+            user_github_token=None  # Optional parameter
         )
         
         return state
     
-    @track(name="Full Evaluation Run", type="tool", project_name="skillprotocol-evals")
-    async def run_evaluation(
-        self, 
-        experiment_name: str = "baseline",
-        limit: int = None,
-        skip_analysis: bool = False,
-        model: str = "groq/llama3-70b-8192"
-    ) -> Dict[str, Any]:
+    def create_evaluation_task(self, model: str = "gemini/gemini-2.0-flash", skip_analysis: bool = False):
         """
-        Runs complete evaluation on golden dataset with Groq models
+        Create the evaluation task function for Opik's evaluate framework
         """
-        print(f"\n{'='*80}")
-        print(f"🔬 STARTING EVALUATION: {experiment_name} (Powered by Groq)")
-        print(f"Model: {model}")
-        print(f"{'='*80}\n")
-        
-        repos_to_eval = GOLDEN_REPOS[:limit] if limit else GOLDEN_REPOS
-        results = []
-        
-        for i, repo_item in enumerate(repos_to_eval):
-            repo_name = repo_item["repo_url"].split("/")[-1]
+        async def evaluation_task(dataset_item: Dict[str, Any]) -> Dict[str, Any]:
+            """
+            Evaluation task that processes each dataset item
             
-            print(f"\n[{i+1}/{len(repos_to_eval)}] Evaluating: {repo_name}")
-            print(f"Expected Level: {repo_item['expected_sfia_level']}")
-            print(f"Using Model: {model}")
-            print("-" * 60)
+            Args:
+                dataset_item: Dictionary with 'input' (repo_url) and 'expected_output' (sfia_level)
+            
+            Returns:
+                Dictionary with analysis results
+            """
+            repo_url = dataset_item["input"]
+            expected_sfia_level = int(dataset_item["expected_output"])
+            repo_name = repo_url.split("/")[-1]
+            
+            print(f"🔄 Evaluating: {repo_name} (Expected Level: {expected_sfia_level})")
             
             try:
                 if skip_analysis:
@@ -131,16 +123,16 @@ class SkillProtocolEvaluationRunner:
                     else:
                         print(f"  ⚠️  No cache found, running analysis...")
                         state = await self.run_analysis_internal(
-                            repo_url=repo_item["repo_url"],
-                            job_id=f"eval_{experiment_name}_{repo_name}",
+                            repo_url=repo_url,
+                            job_id=f"eval_{repo_name}",
                             model=model
                         )
                 else:
-                    # Run actual analysis with Groq
-                    print(f"  🔄 Running analysis with Groq...")
+                    # Run actual analysis with Gemini
+                    print(f"  🔄 Running analysis with Gemini...")
                     state = await self.run_analysis_internal(
-                        repo_url=repo_item["repo_url"],
-                        job_id=f"eval_{experiment_name}_{repo_name}",
+                        repo_url=repo_url,
+                        job_id=f"eval_{repo_name}",
                         model=model
                     )
                     
@@ -155,149 +147,206 @@ class SkillProtocolEvaluationRunner:
                 sfia_result = state.get("sfia_result", {})
                 scan_metrics = state.get("scan_metrics", {})
                 
-                # Evaluate with metrics
-                metric_scores = {}
-                for metric in self.metrics:
-                    try:
-                        score = await metric.evaluate(
-                            predicted=sfia_result,
-                            expected=repo_item,
-                            context=scan_metrics
-                        )
-                        metric_scores[metric.name] = score
-                        print(f"  ✅ {metric.name}: {score:.3f}")
-                    except Exception as e:
-                        print(f"  ❌ {metric.name}: Failed - {e}")
-                        metric_scores[metric.name] = 0.0
-                
-                # Store result
-                result = {
-                    "repo_url": repo_item["repo_url"],
+                # Return structured result for Opik evaluation
+                return {
+                    "repo_url": repo_url,
                     "repo_name": repo_name,
-                    "expected": repo_item,
-                    "predicted": sfia_result,
+                    "expected_sfia_level": expected_sfia_level,
+                    "predicted_sfia_result": sfia_result,
                     "scan_metrics": scan_metrics,
-                    "metric_scores": metric_scores,
-                    "model_used": model,
-                    "timestamp": datetime.now().isoformat()
+                    "analysis_state": state
                 }
-                results.append(result)
-                
-                # Log to Opik with Groq model info
-                log_evaluation_trace(
-                    repo_url=repo_item["repo_url"],
-                    expected=repo_item,
-                    predicted=sfia_result,
-                    scores=metric_scores,
-                    experiment_name=experiment_name,
-                    model_info={
-                        "provider": "groq",
-                        "model": model,
-                        "base_url": "https://api.groq.com/openai/v1"
-                    }
-                )
                 
             except Exception as e:
-                print(f"  ❌ Failed: {e}")
-                # Log failure
-                result = {
-                    "repo_url": repo_item["repo_url"],
+                print(f"  ❌ Error evaluating {repo_name}: {e}")
+                return {
+                    "repo_url": repo_url,
                     "repo_name": repo_name,
-                    "expected": repo_item,
-                    "predicted": None,
-                    "error": str(e),
-                    "model_used": model,
-                    "timestamp": datetime.now().isoformat()
+                    "expected_sfia_level": expected_sfia_level,
+                    "predicted_sfia_result": None,
+                    "scan_metrics": None,
+                    "analysis_state": None,
+                    "error": str(e)
                 }
-                results.append(result)
         
-        # Generate summary
-        summary = self._generate_summary(results, experiment_name, model)
-        
-        # Save results
-        self._save_results(results, summary, experiment_name)
-        
-        return {
-            "experiment_name": experiment_name,
-            "model": model,
-            "results": results,
-            "summary": summary,
-            "total_repos": len(repos_to_eval),
-            "successful_evals": len([r for r in results if "error" not in r])
-        }
+        return evaluation_task
     
-    def _generate_summary(self, results: List[Dict], experiment_name: str, model: str) -> Dict[str, Any]:
-        """Generate evaluation summary with Groq model info"""
-        successful_results = [r for r in results if "error" not in r]
+    @track(name="Full Evaluation Run", type="tool", project_name="skillprotocol-evals")
+    async def run_evaluation(
+        self, 
+        experiment_name: str = "baseline",
+        limit: Optional[int] = None,
+        skip_analysis: bool = False,
+        model: str = "gemini/gemini-2.0-flash"
+    ) -> Dict[str, Any]:
+        """
+        Runs complete evaluation on golden dataset using Opik's evaluation framework
+        """
+        print(f"\n{'='*80}")
+        print(f"🔬 STARTING EVALUATION: {experiment_name} (Powered by Gemini)")
+        print(f"Model: {model}")
+        print(f"Dataset: sfia-golden-v1")
+        if limit:
+            print(f"Limit: {limit} repositories")
+        print(f"{'='*80}\n")
         
-        if not successful_results:
+        try:
+            # Create the evaluation task
+            evaluation_task = self.create_evaluation_task(model=model, skip_analysis=skip_analysis)
+            
+            # Prepare dataset for evaluation
+            dataset_to_use = self.dataset
+            if limit:
+                # If limit is specified, we need to create a subset
+                all_items = list(self.dataset.get_items())
+                limited_items = all_items[:limit]
+                
+                # Create a temporary dataset with limited items
+                temp_dataset_name = f"sfia-golden-v1-limited-{limit}"
+                temp_dataset = self.client.get_or_create_dataset(name=temp_dataset_name)
+                
+                # Clear and insert limited items
+                temp_dataset.insert([
+                    {"input": item["input"], "expected_output": item["expected_output"]} 
+                    for item in limited_items
+                ])
+                dataset_to_use = temp_dataset
+            
+            # Run evaluation using Opik's framework
+            print(f"🚀 Starting Opik evaluation...")
+            evaluation_result = await evaluate(
+                dataset=dataset_to_use,
+                task=evaluation_task,
+                scoring_metrics=self.metrics,
+                experiment_name=f"{experiment_name}-gemini",
+                project_name=self.project_name
+            )
+            
+            print(f"\n{'='*80}")
+            print(f"✅ EVALUATION COMPLETED: {experiment_name}")
+            print(f"{'='*80}")
+            
+            # Extract and display summary metrics
+            if hasattr(evaluation_result, 'aggregate_scores'):
+                print(f"\n📊 SUMMARY METRICS:")
+                for metric_name, score in evaluation_result.aggregate_scores.items():
+                    print(f"  {metric_name}: {score:.3f}")
+            
+            # Return comprehensive results
             return {
                 "experiment_name": experiment_name,
                 "model": model,
-                "total_repos": len(results),
-                "successful_evals": 0,
-                "error": "No successful evaluations"
+                "dataset_name": "sfia-golden-v1",
+                "evaluation_result": evaluation_result,
+                "timestamp": datetime.now().isoformat(),
+                "total_items_evaluated": limit or len(list(self.dataset.get_items())),
+                "skip_analysis": skip_analysis
             }
-        
-        # Calculate average scores per metric
-        metric_averages = {}
-        for metric in self.metrics:
-            scores = [r["metric_scores"].get(metric.name, 0) for r in successful_results]
-            metric_averages[metric.name] = {
-                "mean": sum(scores) / len(scores) if scores else 0,
-                "min": min(scores) if scores else 0,
-                "max": max(scores) if scores else 0,
-                "count": len(scores)
-            }
-        
-        return {
-            "experiment_name": experiment_name,
-            "model": model,
-            "provider": "groq",
-            "total_repos": len(results),
-            "successful_evals": len(successful_results),
-            "failed_evals": len(results) - len(successful_results),
-            "metric_averages": metric_averages,
-            "timestamp": datetime.now().isoformat()
-        }
-    
-    def _save_results(self, results: List[Dict], summary: Dict, experiment_name: str):
-        """Save evaluation results to file"""
-        results_dir = Path("evaluation_results")
-        results_dir.mkdir(exist_ok=True)
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Save detailed results
-        results_file = results_dir / f"{experiment_name}_{timestamp}_detailed.json"
-        with open(results_file, 'w') as f:
-            json.dump(results, f, indent=2)
-        
-        # Save summary
-        summary_file = results_dir / f"{experiment_name}_{timestamp}_summary.json"
-        with open(summary_file, 'w') as f:
-            json.dump(summary, f, indent=2)
-        
-        print(f"\n📊 Results saved:")
-        print(f"  📄 Detailed: {results_file}")
-        print(f"  📋 Summary: {summary_file}")
-
-    @track(name="Quick Model Test", type="tool")
-    async def test_groq_connection(self, model: str = "groq/llama3-8b-8192") -> bool:
-        """Test Groq connection and model availability"""
-        try:
-            response = self.groq_client.chat.completions.create(
-                model=model.replace("groq/", ""),  # Remove prefix for actual API call
-                messages=[
-                    {"role": "user", "content": "Test connection. Respond with 'OK'."}
-                ],
-                max_tokens=10
-            )
-            
-            result = response.choices[0].message.content.strip()
-            print(f"✅ Groq connection successful: {result}")
-            return True
             
         except Exception as e:
-            print(f"❌ Groq connection failed: {e}")
-            return False
+            print(f"❌ Evaluation failed: {e}")
+            raise
+    
+    @track(name="Quick Evaluation", type="tool", project_name="skillprotocol-evals")
+    async def run_quick_evaluation(
+        self,
+        experiment_name: str = "quick-test",
+        sample_size: int = 5,
+        model: str = "gemini/gemini-2.0-flash"
+    ) -> Dict[str, Any]:
+        """
+        Run a quick evaluation on a small sample for testing
+        """
+        print(f"🚀 Running quick evaluation with {sample_size} samples...")
+        
+        return await self.run_evaluation(
+            experiment_name=experiment_name,
+            limit=sample_size,
+            skip_analysis=False,
+            model=model
+        )
+    
+    @track(name="Cached Evaluation", type="tool", project_name="skillprotocol-evals")
+    async def run_cached_evaluation(
+        self,
+        experiment_name: str = "cached-test",
+        limit: Optional[int] = None,
+        model: str = "gemini/gemini-2.0-flash"
+    ) -> Dict[str, Any]:
+        """
+        Run evaluation using cached analysis results for faster iteration
+        """
+        print(f"📁 Running cached evaluation...")
+        
+        return await self.run_evaluation(
+            experiment_name=experiment_name,
+            limit=limit,
+            skip_analysis=True,
+            model=model
+        )
+    
+    def get_evaluation_summary(self, evaluation_result) -> Dict[str, Any]:
+        """
+        Extract and format evaluation summary from Opik results
+        """
+        summary = {
+            "total_evaluated": 0,
+            "successful_evaluations": 0,
+            "failed_evaluations": 0,
+            "average_scores": {},
+            "score_distribution": {}
+        }
+        
+        if hasattr(evaluation_result, 'aggregate_scores'):
+            summary["average_scores"] = evaluation_result.aggregate_scores
+        
+        if hasattr(evaluation_result, 'experiment_items'):
+            summary["total_evaluated"] = len(evaluation_result.experiment_items)
+            # Add more detailed analysis here if needed
+        
+        return summary
+
+
+# ============================================================================
+# USAGE EXAMPLES
+# ============================================================================
+
+async def main():
+    """Example usage of the evaluation runner"""
+    
+    runner = SkillProtocolEvaluationRunner()
+    
+    # Quick test with 3 repositories
+    print("Running quick evaluation...")
+    quick_result = await runner.run_quick_evaluation(
+        experiment_name="gemini-quick-test",
+        sample_size=3,
+        model="gemini/gemini-2.0-flash"
+    )
+    
+    # Full evaluation
+    print("\nRunning full evaluation...")
+    full_result = await runner.run_evaluation(
+        experiment_name="gemini-full-eval",
+        model="gemini/gemini-2.0-flash"
+    )
+    
+    # Cached evaluation for faster iteration
+    print("\nRunning cached evaluation...")
+    cached_result = await runner.run_cached_evaluation(
+        experiment_name="gemini-cached-eval",
+        limit=10,
+        model="gemini/gemini-2.0-flash"
+    )
+    
+    return {
+        "quick": quick_result,
+        "full": full_result,
+        "cached": cached_result
+    }
+
+
+if __name__ == "__main__":
+    # Run the evaluation
+    results = asyncio.run(main())
+    print("\n🎉 All evaluations completed!")

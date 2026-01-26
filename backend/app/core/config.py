@@ -38,11 +38,11 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = 0.1
     GEMINI_API_KEY: str
     OPIK_API_KEY: str = ""
-    OPIK_WORKSPACE: str = ""
+    OPIK_WORKSPACE: str = "" 
     OPIK_PROJECT_NAME: str = "skillprotocol"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
-    MAX_REPO_SIZE_KB: int = 100000  # 100MB
+    MAX_REPO_SIZE_KB: int = 500000  
     CLONE_TIMEOUT_SECONDS: int = 120  # 2 minutes
     
     CORS_ORIGINS_STR: str = "http://localhost:5173,http://localhost:3000"

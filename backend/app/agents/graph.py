@@ -1,26 +1,28 @@
 """
-SkillProtocol LangGraph Orchestrator - FULL PRODUCTION VERSION
+SkillProtocol LangGraph Orchestrator - FIXED FOR VISUALIZATION
 Handles multi-agent handoff, Gemini 3 Flash execution, and Opik Thread Grouping.
 """
 
 from typing import Literal, Dict, Any, Optional
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
-from opik.integrations.langchain import OpikTracer
+
+# --- KEY IMPORT FOR VISUALIZATION ---
+from opik.integrations.langchain import OpikTracer, track_langgraph
 
 # App Imports
 from app.core.config import settings
 from app.core.state import AnalysisState, create_initial_state
 from app.agents.validator import validate_repository
 from app.agents.scanner import scan_codebase
-from app.agents.reviewer import review_semantics  # Forensic Architect
-from app.agents.grader import grade_sfia_level      # Initial Assessor
-from app.agents.judge import arbitrate_level        # Sovereign Arbiter
+from app.agents.reviewer import review_semantics
+from app.agents.grader import grade_sfia_level
+from app.agents.judge import arbitrate_level
 from app.agents.auditor import reality_check
 from app.agents.reporter import store_and_report
 
 # ============================================================================
-# ROUTING LOGIC (Preserved Original Robust Logic)
+# ROUTING LOGIC
 # ============================================================================
 
 def should_proceed_to_scanner(state: AnalysisState) -> Literal["scanner", "reporter"]:
@@ -87,7 +89,7 @@ def should_retry_grader(state: AnalysisState) -> Literal["grader", "judge"]:
 
 
 # ============================================================================
-# GRAPH CREATION (Integrated with Reviewer Node)
+# GRAPH DEFINITION
 # ============================================================================
 
 def create_analysis_graph():
@@ -100,7 +102,7 @@ def create_analysis_graph():
     workflow.add_node("scanner", scan_codebase)
     workflow.add_node("reviewer", review_semantics)  # Forensic Deposition Node
     workflow.add_node("grader", grade_sfia_level)
-    workflow.add_node("judge", arbitrate_level)       # The Supreme Court
+    workflow.add_node("judge", arbitrate_level)        # The Supreme Court
     workflow.add_node("auditor", reality_check)
     workflow.add_node("reporter", store_and_report)
     
@@ -149,7 +151,7 @@ analysis_graph = create_analysis_graph()
 
 
 # ============================================================================
-# EXECUTION INTERFACE (Full Preservation of Threading Logic)
+# EXECUTION INTERFACE (FIXED FOR OPIK VISUALIZATION)
 # ============================================================================
 
 async def run_analysis(
@@ -160,7 +162,7 @@ async def run_analysis(
 ) -> AnalysisState:
     """
     High-level function to run the full analysis workflow.
-    Ensures Opik groups these spans under one thread_id.
+    Uses track_langgraph to ensure the Visual Graph appears in Opik.
     """
     
     print(f"\n{'='*70}")
@@ -178,10 +180,10 @@ async def run_analysis(
         user_github_token=user_github_token
     )
 
-    # 2. Configure Opik Tracer with explicit project and threading
+    # 2. Configure Opik Tracer (Minimal Config needed here)
     opik_tracer = OpikTracer(
         project_name=settings.OPIK_PROJECT_NAME,
-        tags=["production", "skill-verification", "gemini-3"],
+        tags=["production", "skill-verification", "gemini-3", "langgraph"],
         metadata={
             "user_id": user_id,
             "repo_url": repo_url,
@@ -189,20 +191,26 @@ async def run_analysis(
         }
     )
     
-    # 3. Configure Threading and Persistence
+    # 3. CRITICAL: Wrap graph with track_langgraph
+    # FIXED: Removed 'project_name' argument which caused the crash
+    tracked_graph = track_langgraph(
+        analysis_graph,
+        opik_tracer=opik_tracer 
+    )
+
+    # 4. Configure Threading
     config = {
         "configurable": {
             "thread_id": job_id
         },
-        "callbacks": [opik_tracer],
         "metadata": {
             "opik_thread_id": job_id 
         }
     }
     
     try:
-        # Ainvoke ensures non-blocking async execution
-        final_state = await analysis_graph.ainvoke(initial_state, config)
+        # 5. Invoke the TRACKED graph
+        final_state = await tracked_graph.ainvoke(initial_state, config)
     except Exception as e:
         print(f"❌ Workflow execution error: {str(e)}")
         initial_state["errors"].append(f"Workflow error: {str(e)}")
@@ -227,6 +235,7 @@ async def get_analysis_status(job_id: str) -> dict:
     config = {"configurable": {"thread_id": job_id}}
     
     try:
+        # We can use the base analysis_graph for reading state (it shares memory)
         state_snapshot = await analysis_graph.aget_state(config)
         
         if not state_snapshot or not state_snapshot.values:
