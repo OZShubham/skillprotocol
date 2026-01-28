@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 # App Imports
-from app.evaluation.golden_dataset import GOLDEN_REPOS
+# from app.evaluation.golden_dataset import GOLDEN_REPOS
 # Note: Ensure sfia_level_accuracy is available or define it locally if metrics.py doesn't export it as a standalone function
 from app.core.opik_config import OpikManager, PROJECTS
 from app.core.config import settings

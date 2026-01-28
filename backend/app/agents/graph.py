@@ -1,13 +1,13 @@
 """
-SkillProtocol LangGraph Orchestrator - FIXED FOR VISUALIZATION
-Handles multi-agent handoff, Gemini 3 Flash execution, and Opik Thread Grouping.
+SkillProtocol LangGraph Orchestrator - WITH MENTOR AGENT
+Handles multi-agent handoff including the new Mentor agent for growth recommendations.
 """
 
-from typing import Literal, Dict, Any, Optional
+from typing import Literal
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
-# --- KEY IMPORT FOR VISUALIZATION ---
+# Import Opik tracking
 from opik.integrations.langchain import OpikTracer, track_langgraph
 
 # App Imports
@@ -19,28 +19,22 @@ from app.agents.reviewer import review_semantics
 from app.agents.grader import grade_sfia_level
 from app.agents.judge import arbitrate_level
 from app.agents.auditor import reality_check
+from app.agents.mentor import provide_mentorship  # NEW IMPORT
 from app.agents.reporter import store_and_report
 
 # ============================================================================
-# ROUTING LOGIC
+# ROUTING LOGIC (UPDATED)
 # ============================================================================
 
 def should_proceed_to_scanner(state: AnalysisState) -> Literal["scanner", "reporter"]:
-    """
-    Decision after validation: Should we clone and scan?
-    Checks both should_skip AND validation.is_valid
-    """
+    """Decision after validation"""
     if state.get("should_skip", False):
         print(f"⏭️  [Router] Skipping analysis: {state.get('skip_reason')}")
         return "reporter"
     
     validation = state.get("validation")
-    if not validation:
-        print("⏭️  [Router] No validation data, skipping to reporter")
-        return "reporter"
-    
-    if not validation.get("is_valid", False):
-        print(f"⏭️  [Router] Validation failed: {validation.get('error')}")
+    if not validation or not validation.get("is_valid", False):
+        print(f"⏭️  [Router] Validation failed")
         return "reporter"
     
     print("✅ [Router] Validation passed, proceeding to scanner")
@@ -48,9 +42,7 @@ def should_proceed_to_scanner(state: AnalysisState) -> Literal["scanner", "repor
 
 
 def should_proceed_to_reviewer(state: AnalysisState) -> Literal["reviewer", "reporter"]:
-    """
-    Decision after scanning: Did we get enough data to perform a deep forensic review?
-    """
+    """Decision after scanning"""
     scan_metrics = state.get("scan_metrics")
     if not scan_metrics:
         print("⏭️  [Router] No scan metrics, skipping to reporter")
@@ -61,7 +53,6 @@ def should_proceed_to_reviewer(state: AnalysisState) -> Literal["reviewer", "rep
     
     if total_sloc < 10:
         print(f"⏭️  [Router] Not enough code ({total_sloc} SLOC), skipping to reporter")
-        state["skip_reason"] = "Insufficient code to analyze"
         return "reporter"
     
     print(f"✅ [Router] Found {total_sloc} SLOC, proceeding to reviewer")
@@ -69,12 +60,10 @@ def should_proceed_to_reviewer(state: AnalysisState) -> Literal["reviewer", "rep
 
 
 def should_retry_grader(state: AnalysisState) -> Literal["grader", "judge"]:
-    """
-    Decision after grading: Should we retry or proceed to the Supreme Court (Judge)?
-    """
+    """Decision after grading"""
     sfia_result = state.get("sfia_result")
     if not sfia_result:
-        return "judge" 
+        return "judge"
     
     confidence = sfia_result.get("confidence", 1.0)
     retry_count = sfia_result.get("retry_count", 0)
@@ -84,26 +73,66 @@ def should_retry_grader(state: AnalysisState) -> Literal["grader", "judge"]:
         state["sfia_result"]["retry_count"] = 1
         return "grader"
     
-    print(f"✅ [Router] Grader finished, proceeding to Judge for final arbitration")
+    print(f"✅ [Router] Grader finished, proceeding to Judge")
     return "judge"
 
 
+def should_provide_mentorship(state: AnalysisState) -> Literal["mentor", "reporter"]:
+    """
+    Decide if we should provide mentorship based on Analysis State.
+    Architectural Logic:
+    1. Did we find code? (Scanner)
+    2. Did we pass the reality check? (Auditor)
+    3. Is there room to grow? (SFIA Level < 5)
+    """
+    
+    # 1. Check if we actually have code analysis (Scanner Output)
+    ncrf = state.get("scan_metrics", {}).get("ncrf", {})
+    base_credits = ncrf.get("ncrf_base_credits", 0)
+    
+    if base_credits <= 0:
+        print("⏭️  [Router] No measurable code found, skipping mentorship")
+        return "reporter"
+    
+    # 2. Check Reality Check (Auditor Output)
+    # If the code doesn't build, we shouldn't mentor them on 'growth' yet; 
+    # they need to fix their build first.
+    audit_result = state.get("audit_result", {})
+    if not audit_result.get("reality_check_passed", False):
+        print("⏭️  [Router] Reality check failed (Broken Build), skipping mentorship")
+        return "reporter"
+
+    # 3. Check SFIA Ceiling (Grader/Judge Output)
+    # Level 5 experts don't need this automated mentorship.
+    sfia_result = state.get("sfia_result", {})
+    current_level = sfia_result.get("sfia_level", 0)
+    
+    if current_level >= 5:
+        print(f"⏭️  [Router] Expert Level {current_level} detected, skipping standard mentorship")
+        return "reporter"
+    
+    # Success: All pre-requisites met.
+    print(f"✅ [Router] Valid Analysis (L{current_level}) -> Routing to Mentor Agent")
+    return "mentor"
+
+
 # ============================================================================
-# GRAPH DEFINITION
+# GRAPH DEFINITION (UPDATED)
 # ============================================================================
 
 def create_analysis_graph():
-    """Creates the LangGraph workflow with Reviewer and Judge Agents"""
+    """Creates the LangGraph workflow WITH Mentor Agent"""
     
     workflow = StateGraph(AnalysisState)
     
-    # Add nodes
+    # Add all nodes including MENTOR
     workflow.add_node("validator", validate_repository)
     workflow.add_node("scanner", scan_codebase)
-    workflow.add_node("reviewer", review_semantics)  # Forensic Deposition Node
+    workflow.add_node("reviewer", review_semantics)
     workflow.add_node("grader", grade_sfia_level)
-    workflow.add_node("judge", arbitrate_level)        # The Supreme Court
+    workflow.add_node("judge", arbitrate_level)
     workflow.add_node("auditor", reality_check)
+    workflow.add_node("mentor", provide_mentorship)  # NEW NODE
     workflow.add_node("reporter", store_and_report)
     
     # Entry point
@@ -123,25 +152,33 @@ def create_analysis_graph():
         {"reviewer": "reviewer", "reporter": "reporter"}
     )
     
-    # Reviewer -> Grader (Direct handoff of exhibits)
+    # Reviewer -> Grader
     workflow.add_edge("reviewer", "grader")
     
     # Grader -> (Retry) OR (Judge)
     workflow.add_conditional_edges(
         "grader",
         should_retry_grader,
-        {
-            "grader": "grader", 
-            "judge": "judge"  
-        }
+        {"grader": "grader", "judge": "judge"}
     )
     
-    # Final Adjudication Path
+    # Judge -> Auditor
     workflow.add_edge("judge", "auditor")
-    workflow.add_edge("auditor", "reporter")
+    
+    # Auditor -> Mentor (NEW EDGE)
+    workflow.add_conditional_edges(
+        "auditor",
+        should_provide_mentorship,
+        {"mentor": "mentor", "reporter": "reporter"}
+    )
+    
+    # Mentor -> Reporter (NEW EDGE)
+    workflow.add_edge("mentor", "reporter")
+    
+    # Reporter -> END
     workflow.add_edge("reporter", END)
     
-    # Compile with Memory for State Snapshots
+    # Compile with Memory
     checkpointer = MemorySaver()
     return workflow.compile(checkpointer=checkpointer)
 
@@ -151,7 +188,7 @@ analysis_graph = create_analysis_graph()
 
 
 # ============================================================================
-# EXECUTION INTERFACE (FIXED FOR OPIK VISUALIZATION)
+# EXECUTION INTERFACE
 # ============================================================================
 
 async def run_analysis(
@@ -162,17 +199,17 @@ async def run_analysis(
 ) -> AnalysisState:
     """
     High-level function to run the full analysis workflow.
-    Uses track_langgraph to ensure the Visual Graph appears in Opik.
+    Now includes Mentor agent for growth recommendations.
     """
     
     print(f"\n{'='*70}")
-    print(f"🚀 Starting SkillProtocol Analysis")
+    print(f"🚀 Starting SkillProtocol Analysis (WITH MENTOR)")
     print(f"   Job ID: {job_id}")
     print(f"   Repo: {repo_url}")
     print(f"   User: {user_id}")
     print(f"{'='*70}\n")
     
-    # 1. Create Initial State
+    # Create Initial State
     initial_state = create_initial_state(
         repo_url=repo_url,
         user_id=user_id,
@@ -180,10 +217,10 @@ async def run_analysis(
         user_github_token=user_github_token
     )
 
-    # 2. Configure Opik Tracer (Minimal Config needed here)
+    # Configure Opik Tracer
     opik_tracer = OpikTracer(
         project_name=settings.OPIK_PROJECT_NAME,
-        tags=["production", "skill-verification", "gemini-3", "langgraph"],
+        tags=["production", "skill-verification", "with-mentor"],
         metadata={
             "user_id": user_id,
             "repo_url": repo_url,
@@ -191,25 +228,20 @@ async def run_analysis(
         }
     )
     
-    # 3. CRITICAL: Wrap graph with track_langgraph
-    # FIXED: Removed 'project_name' argument which caused the crash
+    # Wrap graph with tracking
     tracked_graph = track_langgraph(
         analysis_graph,
-        opik_tracer=opik_tracer 
+        opik_tracer=opik_tracer
     )
 
-    # 4. Configure Threading
+    # Configure Threading
     config = {
-        "configurable": {
-            "thread_id": job_id
-        },
-        "metadata": {
-            "opik_thread_id": job_id 
-        }
+        "configurable": {"thread_id": job_id},
+        "metadata": {"opik_thread_id": job_id}
     }
     
     try:
-        # 5. Invoke the TRACKED graph
+        # Invoke the tracked graph
         final_state = await tracked_graph.ainvoke(initial_state, config)
     except Exception as e:
         print(f"❌ Workflow execution error: {str(e)}")
@@ -220,9 +252,10 @@ async def run_analysis(
         return initial_state
     
     print(f"\n{'='*70}")
-    print(f"✅ Analysis Complete")
+    print(f"✅ Analysis Complete (WITH MENTORSHIP)")
     print(f"   Final Level: {final_state.get('sfia_result', {}).get('sfia_level', 'N/A')}")
     print(f"   Final Credits: {final_state.get('final_credits', 0)}")
+    print(f"   Mentorship: {'Provided' if final_state.get('mentorship_plan') else 'Not applicable'}")
     print(f"   Errors: {len(final_state.get('errors', []))}")
     print(f"{'='*70}\n")
     
@@ -230,12 +263,11 @@ async def run_analysis(
 
 
 async def get_analysis_status(job_id: str) -> dict:
-    """Gets a snapshot of the ongoing graph state via thread_id."""
+    """Gets a snapshot of the ongoing graph state."""
     
     config = {"configurable": {"thread_id": job_id}}
     
     try:
-        # We can use the base analysis_graph for reading state (it shares memory)
         state_snapshot = await analysis_graph.aget_state(config)
         
         if not state_snapshot or not state_snapshot.values:
@@ -247,12 +279,12 @@ async def get_analysis_status(job_id: str) -> dict:
         
         values = state_snapshot.values
         
-        # Determine status based on graph termination
+        # Determine status
         status = "running"
         if not state_snapshot.next and values.get("current_step") == "complete":
-             status = "complete"
+            status = "complete"
         elif not state_snapshot.next:
-             status = "complete"
+            status = "complete"
 
         return {
             "status": status,

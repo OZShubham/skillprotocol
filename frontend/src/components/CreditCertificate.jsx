@@ -4,6 +4,7 @@ import confetti from 'canvas-confetti'
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
 import AgentDiagnostics from './AgentDiagnostics' // The new robust component
+import GrowthPlan from './GrowthPlan'
 
 export default function CreditCertificate({ result, onViewDashboard }) {
   
@@ -244,6 +245,15 @@ export default function CreditCertificate({ result, onViewDashboard }) {
                   <ExternalLink className="w-4 h-4" />
                   View Immutable Trace in Opik
                 </a>
+              </div>
+            )}
+
+            {result.mentorship_plan && (
+              <div className="mt-10 pt-10 border-t border-border">
+                <GrowthPlan 
+                  plan={result.mentorship_plan} 
+                  currentLevel={result.sfia_level || 1} 
+                />
               </div>
             )}
 

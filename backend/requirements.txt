@@ -43,7 +43,7 @@ langchain-anthropic
 litellm
 
 google-genai
-
+langchain-groq
 # Observability (THE PRIZE)
 opik           # CRITICAL: Opik integration
 opik-optimizer

@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, Clock, AlertCircle, XCircle, Shield, Terminal, CheckCircle2, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Check, Clock, AlertCircle, XCircle, Shield, Terminal, CheckCircle2, BookOpen, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { api } from '../services/api' 
 import { useNavigate } from 'react-router-dom'
 
 const AGENT_STEPS = [
   { key: 'validator', name: 'Validator', desc: 'Checking repository...', icon: Shield },
   { key: 'scanner', name: 'Scanner', desc: 'Analyzing code...', icon: Terminal },
+  { key: 'reviewer', name: 'Reviewer', desc: 'Semantic analysis...', icon: CheckCircle2 }, // Ensure Reviewer is here
   { key: 'grader', name: 'Grader', desc: 'Assessing SFIA level...', icon: CheckCircle2 },
   { key: 'judge', name: 'Judge', desc: 'Deliberating verdict...', icon: Shield },
   { key: 'auditor', name: 'Auditor', desc: 'Reality check...', icon: CheckCircle2 },
+  { key: 'mentor', name: 'Mentor', desc: 'Creating growth plan...', icon: BookOpen }, // NEW STEP
   { key: 'reporter', name: 'Reporter', desc: 'Finalizing credits...', icon: Check }
 ]
 

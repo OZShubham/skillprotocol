@@ -65,7 +65,7 @@ class Repository(Base):
     
     # User
     user_id = Column(String, nullable=True)
-    
+    mentorship_plan = Column(JSON, nullable=True)
     # Results
     final_credits = Column(Float, nullable=True, default=0.0)
     sfia_level = Column(Integer, nullable=True)
@@ -191,6 +191,7 @@ async def save_analysis_result(state: dict):
                 
                 # ✅ ADD: Update quality metrics too
                 existing_record.quality_metrics = state.get("scan_metrics", {}).get("quality_report")
+                existing_record.mentorship_plan = state.get("mentorship_plan")
                 existing_record.validation_metrics = state.get("validation_result")
                 
                 # DON'T change final_credits if already awarded
@@ -223,6 +224,7 @@ async def save_analysis_result(state: dict):
                 opik_trace_id=state.get("opik_trace_id"),
                 errors=state.get("errors", []),
                 quality_metrics=state.get("scan_metrics", {}).get("quality_report"),  # ✅ NEW
+                mentorship_plan=state.get("mentorship_plan"),
                 validation_metrics=state.get("validation_result")  # ✅ NEW
             )
             
