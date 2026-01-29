@@ -1,12 +1,15 @@
 import { motion } from 'framer-motion'
-import { Award, ExternalLink, Download, Share2, CheckCircle, Code, Shield, MessageSquare, ThumbsUp, ThumbsDown, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Award, ExternalLink, Download, Share2, CheckCircle, Code, Shield, MessageSquare, ThumbsUp, ThumbsDown, AlertCircle, CheckCircle2, BookOpen, ChevronDown } from 'lucide-react'
 import confetti from 'canvas-confetti'
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
-import AgentDiagnostics from './AgentDiagnostics' // The new robust component
-import GrowthPlan from './GrowthPlan'
+import AgentDiagnostics from './AgentDiagnostics'
+import { AnimatePresence } from 'framer-motion'
+import MentorReport from './MentorReport'
+import { ChevronUp } from 'lucide-react'
 
 export default function CreditCertificate({ result, onViewDashboard }) {
+  const [showMentorship, setShowMentorship] = useState(false)
   
   useEffect(() => {
     // Fire confetti on load
@@ -16,7 +19,13 @@ export default function CreditCertificate({ result, onViewDashboard }) {
       origin: { y: 0.6 },
       colors: ['#F59E0B', '#FFFFFF', '#10B981']
     })
-  }, [])
+
+    // Auto-expand mentorship if significant gaps exist
+    const plan = result.mentorship_plan || result.mentor_plan  // Handle both key names
+    if (plan && (plan.quick_wins?.length > 0 || plan.actionable_roadmap?.length > 0)) {
+      setShowMentorship(true)
+    }
+  }, [result])
 
   // Dynamic colors based on SFIA level
   const sfiaLevelColors = {
@@ -39,6 +48,11 @@ export default function CreditCertificate({ result, onViewDashboard }) {
     linkElement.setAttribute('download', exportFileDefaultName)
     linkElement.click()
   }
+
+  const mentorship =
+  result?.mentorship_plan ||
+  result?.mentor_plan ||
+  { missing_elements_count: 0 } // Fallback to prevent crash if null
 
   // Share logic
   const handleShare = async () => {
@@ -147,7 +161,7 @@ export default function CreditCertificate({ result, onViewDashboard }) {
               </div>
             </div>
 
-            {/* Code Analysis Metrics */}
+            {/* Code Analysis Metrics - ENHANCED */}
             <div>
               <h3 className="text-sm font-mono text-text-muted uppercase tracking-wider mb-6 flex items-center gap-2">
                 <Code className="w-4 h-4 text-primary" />
@@ -170,6 +184,24 @@ export default function CreditCertificate({ result, onViewDashboard }) {
                   sub="Code Files" 
                   highlight
                 />
+                
+                {/* NEW: Quality Multiplier */}
+                <MetricCard 
+                  label="Quality Score" 
+                  value={
+                    result.scan_metrics?.quality_report?.quality_level || 
+                    (result.scan_metrics?.quality_multiplier 
+                      ? `${(result.scan_metrics.quality_multiplier * 100).toFixed(0)}%` 
+                      : 'N/A'
+                    )
+                  } 
+                  sub="Code Quality"
+                  highlight={result.scan_metrics?.quality_multiplier > 1.0}
+                />
+              </div>
+
+              {/* Second row for Reality Check and other metrics */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                 <MetricCard 
                   label="Reality Check" 
                   value={
@@ -188,10 +220,40 @@ export default function CreditCertificate({ result, onViewDashboard }) {
                       : result.audit_result?.reality_check_passed
                   }
                 />
+
+                {/* NEW: Bayesian Alignment */}
+                {result.sfia_result?.bayesian_agreement !== undefined && (
+                  <MetricCard 
+                    label="Statistical Align" 
+                    value={result.sfia_result.bayesian_agreement ? "YES" : "NO"} 
+                    sub="Bayesian Check"
+                    isSuccess={result.sfia_result.bayesian_agreement}
+                  />
+                )}
+
+                {/* NEW: Tool Usage Count (if Grader used tools) */}
+                {result.sfia_result?.tool_calls_made && (
+                  <MetricCard 
+                    label="Tools Used" 
+                    value={result.sfia_result.tool_calls_made} 
+                    sub="Grader Analysis"
+                    highlight
+                  />
+                )}
+
+                {/* NEW: Patterns Detected */}
+                {result.sfia_result?.patterns_found && (
+                  <MetricCard 
+                    label="Patterns" 
+                    value={result.sfia_result.patterns_found} 
+                    sub="Design Patterns"
+                    highlight
+                  />
+                )}
               </div>
             </div>
 
-            {/* Language Breakdown (Kept from original) */}
+            {/* Language Breakdown */}
             {result.scan_metrics?.ncrf?.language_stats && (
               <div>
                 <h3 className="text-sm font-mono text-text-muted uppercase tracking-wider mb-4 flex items-center gap-2">
@@ -214,7 +276,7 @@ export default function CreditCertificate({ result, onViewDashboard }) {
               </div>
             )}
 
-            {/* Evidence Badges (Kept from original) */}
+            {/* Evidence Badges */}
             <div className="p-6 bg-surface border border-border rounded-xl">
               <div className="text-xs text-text-dim font-mono mb-4 uppercase">Detected Markers</div>
               <div className="flex flex-wrap gap-2">
@@ -225,12 +287,12 @@ export default function CreditCertificate({ result, onViewDashboard }) {
               </div>
             </div>
 
-            {/* NEW: Agent Diagnostics / Evidence Chain */}
+            {/* Agent Diagnostics / Evidence Chain */}
             <div className="bg-surface/30 border border-border rounded-xl p-6">
                <AgentDiagnostics result={result} />
             </div>
 
-            {/* Feedback Section (Kept and Styled) */}
+            {/* Feedback Section */}
             <FeedbackSection jobId={result.verification_id || result.job_id || result.id} />
 
             {/* Proof Links */}
@@ -248,14 +310,49 @@ export default function CreditCertificate({ result, onViewDashboard }) {
               </div>
             )}
 
-            {result.mentorship_plan && (
-              <div className="mt-10 pt-10 border-t border-border">
-                <GrowthPlan 
-                  plan={result.mentorship_plan} 
-                  currentLevel={result.sfia_level || 1} 
-                />
-              </div>
-            )}
+            {/* Mentorship Section - NEW */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="bg-panel border border-border rounded-xl overflow-hidden"
+            >
+              <button
+                onClick={() => setShowMentorship(!showMentorship)}
+                className="w-full flex items-center justify-between p-6 hover:bg-surface/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <BookOpen className="w-5 h-5 text-primary" />
+                  <h3 className="text-lg font-bold text-text-main">
+                    Growth & Mentorship Plan
+                  </h3>
+                  {mentorship?.missing_elements_count > 0 && (
+                    <span className="px-2 py-1 bg-orange-500/10 text-orange-400 text-xs font-semibold rounded">
+                      {mentorship.missing_elements_count} areas to improve
+                    </span>
+                  )}
+                </div>
+                {showMentorship ? (
+                  <ChevronUp className="w-5 h-5 text-text-muted" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-text-muted" />
+                )}
+              </button>
+
+              <AnimatePresence>
+                {showMentorship && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="border-t border-border"
+                  >
+                    <div className="p-6">
+                      <MentorReport plan={mentorship} />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
 
             {/* Actions Footer */}
             <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-border">
@@ -299,7 +396,7 @@ export default function CreditCertificate({ result, onViewDashboard }) {
   )
 }
 
-// --- SUBCOMPONENTS (METRIC CARDS, BADGES, FEEDBACK) ---
+// --- SUBCOMPONENTS ---
 
 function FeedbackSection({ jobId }) {
   const [status, setStatus] = useState('idle')

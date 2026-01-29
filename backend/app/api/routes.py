@@ -251,6 +251,7 @@ async def get_result(job_id: str, db: AsyncSession = Depends(get_db)):
             audit_result=record.audit_result,
             sfia_result=record.sfia_result,
             validation_result=record.validation_result,
+            mentorship_plan=record.mentorship_plan,  
             errors=record.errors or [],
             started_at=record.created_at.isoformat() if record.created_at else None,
             completed_at=record.analyzed_at.isoformat() if record.analyzed_at else None
@@ -332,15 +333,27 @@ def _format_state_to_response(job_id, repo_url, result):
     sfia = result.get("sfia_result") or {}
     workspace = getattr(settings, 'OPIK_WORKSPACE', 'default')
     v7_id = result.get("opik_trace_id", job_id)
+    
+    # ✅ FIX: Ensure mentorship_plan is always included
+    mentorship_plan = result.get("mentorship_plan")
+    
     return ResultResponse(
-        job_id=job_id, verification_id=v7_id, repo_url=repo_url, final_credits=result.get("final_credits", 0.0),
-        sfia_level=sfia.get("sfia_level"), sfia_level_name=sfia.get("level_name"),
+        job_id=job_id, 
+        verification_id=v7_id, 
+        repo_url=repo_url, 
+        final_credits=result.get("final_credits", 0.0),
+        sfia_level=sfia.get("sfia_level"), 
+        sfia_level_name=sfia.get("level_name"),
         opik_trace_url=f"https://www.comet.com/{workspace}/opik/traces/{result.get('opik_trace_id', job_id)}",
-        validation=result.get("validation"), scan_metrics=result.get("scan_metrics"),
+        validation=result.get("validation"), 
+        scan_metrics=result.get("scan_metrics"),
         audit_result=result.get("audit_result"),
-        mentorship_plan=result.get("mentorship_plan"), sfia_result=sfia,
-        validation_result=result.get("validation_result"), errors=result.get("errors", []),
-        started_at=result.get("started_at"), completed_at=result.get("completed_at")
+        mentorship_plan=mentorship_plan,  # ✅ CRITICAL
+        sfia_result=sfia,
+        validation_result=result.get("validation_result"), 
+        errors=result.get("errors", []),
+        started_at=result.get("started_at"), 
+        completed_at=result.get("completed_at")
     )
 
 @router.get("/jobs")

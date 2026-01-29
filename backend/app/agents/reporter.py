@@ -1,7 +1,4 @@
-"""
-Reporter Agent - SUPREME COURT COMPATIBLE
-Respects Judge's verdicts, calculates final scores, and logs immutable proof to Opik.
-"""
+
 
 from datetime import datetime
 import logging
@@ -139,10 +136,7 @@ async def store_and_report(state: AnalysisState) -> AnalysisState:
         certificate = _generate_certificate(state, validation_result)
         state["certificate"] = certificate
 
-        # ====================================================================
-        # STEP 6: Log Native Opik Metrics
-        # ====================================================================
-        # Around line 220-280 in reporter.py
+        
         try:
             feedback_scores = []
             

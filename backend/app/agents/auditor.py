@@ -59,10 +59,10 @@ async def reality_check(state: AnalysisState) -> AnalysisState:
         if not has_ci_cd:
             print(f"✅ [Auditor Agent] No CI/CD found - no reality check needed")
             state["audit_result"] = {
-                "reality_check_passed": True,  # <-- DON'T SAY "PASS" IF NO CI/CD EXISTS
+                "reality_check_passed": True,  
                 "reason": "No CI/CD configured",
                 "penalty_applied": False,
-                "has_ci_cd": False  # <-- ADD THIS FLAG
+                "has_ci_cd": False  
             }
             return state
         
@@ -90,7 +90,7 @@ async def reality_check(state: AnalysisState) -> AnalysisState:
             if response.status_code != 200:
                 print(f"⚠️  [Auditor Agent] GitHub API error: {response.status_code}")
                 state["audit_result"] = {
-                    "reality_check_passed": True,  # Benefit of doubt
+                    "reality_check_passed": True,  
                     "reason": "Unable to check GitHub Actions",
                     "penalty_applied": False
                 }

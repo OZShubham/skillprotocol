@@ -21,12 +21,12 @@ class AnalysisState(TypedDict):
     job_id: str
     user_id: str
     user_github_token: Optional[str]
-    
+    repo_path: Optional[str]
     # ========================================================================
     # PROGRESS TRACKING
     # ========================================================================
     current_step: Literal[
-        "validator", "scanner", "reviewer", "grader", "judge", "auditor", "mentor", "reporter", "complete"
+        "validator", "scanner", "grader", "judge", "auditor", "mentor", "reporter", "complete"
     ]
     progress: int
     
@@ -111,12 +111,11 @@ def get_progress_for_step(step: str) -> int:
     progress_map = {
         "validator": 10,
         "scanner": 25,
-        "reviewer": 40,
-        "grader": 60,
-        "judge": 75,
-        "auditor": 85,
-        "mentor": 92,    # NEW STEP
-        "reporter": 95,
+        "grader": 40,
+        "judge": 50,
+        "auditor": 65,
+        "mentor": 75,    # NEW STEP
+        "reporter": 90,
         "complete": 100
     }
     return progress_map.get(step, 0)

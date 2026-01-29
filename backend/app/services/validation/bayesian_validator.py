@@ -23,11 +23,11 @@ PRIORS = {
 
 # Maintainability Index likelihoods per level
 MI_MEANS = {
-    1: 45.0,  # Low maintainability
-    2: 55.0,
-    3: 65.0,  # Average
-    4: 75.0,
-    5: 85.0,  # High maintainability
+    1: 80.0,  # Simple scripts are easy to maintain
+    2: 75.0,
+    3: 70.0,  
+    4: 65.0,
+    5: 60.0,  # Enterprise architecture has more "moving parts"
 }
 MI_STD = 12.0
 

@@ -46,6 +46,18 @@ class Settings(BaseSettings):
     CLONE_TIMEOUT_SECONDS: int = 120  # 2 minutes
     
     CORS_ORIGINS_STR: str = "http://localhost:5173,http://localhost:3000"
+
+
+    # Enhanced agent settings
+    GRADER_MAX_ITERATIONS: int = 8  # Max tool-use loops
+    GRADER_CONFIDENCE_THRESHOLD: float = 0.60  # Retry if below
+    REVIEWER_USE_GEMINI: bool = True  # Use Gemini for semantic analysis
+    MENTOR_MAX_ITERATIONS: int = 10  # Max tool-use loops
+    
+    # Tool settings
+    ENABLE_CODE_ANALYSIS_TOOLS: bool = True
+    ENABLE_LEARNING_RESOURCE_TOOLS: bool = True
+    TOOL_TIMEOUT_SECONDS: int = 30
     
     @property
     def CORS_ORIGINS(self) -> list[str]:

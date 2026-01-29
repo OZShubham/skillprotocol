@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, Clock, AlertCircle, XCircle, Shield, Terminal, CheckCircle2, BookOpen, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Check, Clock, AlertCircle, XCircle, Shield, Terminal, CheckCircle2, BookOpen, Loader2, ChevronDown, ChevronUp, Eye } from 'lucide-react'
 import { api } from '../services/api' 
 import { useNavigate } from 'react-router-dom'
 
 const AGENT_STEPS = [
   { key: 'validator', name: 'Validator', desc: 'Checking repository...', icon: Shield },
   { key: 'scanner', name: 'Scanner', desc: 'Analyzing code...', icon: Terminal },
-  { key: 'reviewer', name: 'Reviewer', desc: 'Semantic analysis...', icon: CheckCircle2 }, // Ensure Reviewer is here
+ 
   { key: 'grader', name: 'Grader', desc: 'Assessing SFIA level...', icon: CheckCircle2 },
   { key: 'judge', name: 'Judge', desc: 'Deliberating verdict...', icon: Shield },
   { key: 'auditor', name: 'Auditor', desc: 'Reality check...', icon: CheckCircle2 },
-  { key: 'mentor', name: 'Mentor', desc: 'Creating growth plan...', icon: BookOpen }, // NEW STEP
+  { key: 'mentor', name: 'Mentor', desc: 'Creating growth plan...', icon: BookOpen },
   { key: 'reporter', name: 'Reporter', desc: 'Finalizing credits...', icon: Check }
 ]
 
@@ -21,6 +21,7 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
   const [validationError, setValidationError] = useState(null)
   const [liveLogs, setLiveLogs] = useState([])
   const [expandedAgent, setExpandedAgent] = useState(null)
+  const [streamClosed, setStreamClosed] = useState(false)
 
   // Polling for status
   useEffect(() => {
@@ -37,6 +38,7 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
         } 
         else if (data.status === 'complete') {
           clearInterval(interval)
+          setStreamClosed(true) // Mark stream as should be closed
           onComplete(jobId)
         } 
         else if (data.status === 'error') {
@@ -55,31 +57,64 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
     return () => clearInterval(interval)
   }, [jobId, onComplete])
 
-  // SSE for live logs
+  // SSE for live logs - ENHANCED with proper closure
   useEffect(() => {
-    if (!jobId || status?.status === 'complete') return
+    if (!jobId || status?.status === 'complete' || streamClosed) return
 
     const eventSource = new EventSource(`http://localhost:8000/api/stream/${jobId}`)
+    let reconnectAttempts = 0
+    const maxReconnects = 3
 
     eventSource.onmessage = (event) => {
       try {
         const newLog = JSON.parse(event.data)
+        
+        // ✅ CRITICAL FIX: Close stream when complete event received
+        if (newLog.event === 'complete') {
+          console.log('✅ Stream completion event received')
+          eventSource.close()
+          setStreamClosed(true)
+          return
+        }
+
         setLiveLogs((prev) => [newLog, ...prev].slice(0, 100))
+        
         // Auto-expand active agent
         if (newLog.agent && !expandedAgent) {
-           setExpandedAgent(newLog.agent)
+          setExpandedAgent(newLog.agent)
+        }
+
+        // Auto-collapse previous agent when new one starts
+        if (newLog.agent && expandedAgent && newLog.agent !== expandedAgent) {
+          setExpandedAgent(newLog.agent)
         }
       } catch (err) {
         console.error("SSE Parse Error:", err)
       }
     }
 
-    eventSource.onerror = () => {
-      eventSource.close()
+    eventSource.onerror = (error) => {
+      console.error('SSE Error:', error)
+      
+      // Don't reconnect if already complete
+      if (status?.status === 'complete' || streamClosed) {
+        eventSource.close()
+        return
+      }
+
+      // Limit reconnection attempts
+      reconnectAttempts++
+      if (reconnectAttempts >= maxReconnects) {
+        console.log('Max reconnection attempts reached')
+        eventSource.close()
+      }
     }
 
-    return () => eventSource.close()
-  }, [jobId, status?.status])
+    return () => {
+      console.log('Cleaning up SSE connection')
+      eventSource.close()
+    }
+  }, [jobId, status?.status, streamClosed, expandedAgent])
 
   if (validationError) {
     return <ValidationErrorView 
@@ -145,7 +180,7 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
             {AGENT_STEPS.map((step, index) => {
               const isActive = status.current_step === step.key
               const isComplete = AGENT_STEPS.findIndex(s => s.key === status.current_step) > index
-              const agentLogs = logsByAgent[step.key] || [] // Fix: Use step.key to match lowercase from backend
+              const agentLogs = logsByAgent[step.key] || []
               const Icon = step.icon
 
               return (
@@ -217,8 +252,8 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
                         exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden"
                       >
-                        <div className="mt-2 ml-14 p-4 bg-void border border-border rounded-lg space-y-2 font-mono text-xs shadow-inner">
-                          {agentLogs.slice(0, 8).map((log, i) => (
+                        <div className="mt-2 ml-14 p-4 bg-void border border-border rounded-lg space-y-2 font-mono text-xs shadow-inner max-h-64 overflow-y-auto">
+                          {agentLogs.slice(0, 15).map((log, i) => (
                             <div key={i} className="flex gap-3">
                               <span className="text-text-dim shrink-0">
                                 [{new Date(log.timestamp).toLocaleTimeString([], {hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit'})}]
@@ -228,6 +263,11 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
                               </span>
                             </div>
                           ))}
+                          {agentLogs.length > 15 && (
+                            <div className="text-text-dim italic pt-2 border-t border-border">
+                              +{agentLogs.length - 15} more logs
+                            </div>
+                          )}
                         </div>
                       </motion.div>
                     )}

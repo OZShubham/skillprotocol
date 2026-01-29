@@ -258,11 +258,23 @@ class ScoringEngine:
     def __init__(self):
         self.analyzer = UniversalCodeAnalyzer()
     
-    def _get_repo_fingerprint(self, repo_path: str, file_count: int) -> str:
-        """Generate unique repo fingerprint"""
-        raw_id = f"{repo_path}_{file_count}"
-        return hashlib.md5(raw_id.encode()).hexdigest()[:8]
+    # def _get_repo_fingerprint(self, repo_path: str, file_count: int) -> str:
+    #     """Generate unique repo fingerprint"""
+    #     raw_id = f"{repo_path}_{file_count}"
+    #     return hashlib.md5(raw_id.encode()).hexdigest()[:8]
     
+    def _get_repo_fingerprint(self, repo_path: str) -> str:
+        """Generate fingerprint based on the actual latest commit hash."""
+        try:
+            import git
+            repo = git.Repo(repo_path)
+            # Use the SHA of the latest commit on the current branch
+            return repo.head.object.hexsha
+        except Exception:
+            # Fallback to a content hash of the file list if git fails
+            files = sorted([str(p) for p in Path(repo_path).rglob('*') if p.is_file()])
+            return hashlib.md5("".join(files).encode()).hexdigest()
+        
     @track(name="Calculate NCrF Base Credits (Enhanced)", type="tool")
     def calculate_ncrf_base_credits(self, repo_path: str) -> Dict[str, Any]:
         """
@@ -355,7 +367,7 @@ class ScoringEngine:
         dominant_lang = max(language_stats.items(), key=lambda x: x[1]['sloc'])[0] if language_stats else 'Unknown'
         
         result = {
-            "repo_fingerprint": self._get_repo_fingerprint(repo_path, file_count),
+            "repo_fingerprint": self._get_repo_fingerprint(repo_path),
             "files_scanned": file_count,
             "total_sloc": total_sloc,
             "total_complexity": total_complexity,

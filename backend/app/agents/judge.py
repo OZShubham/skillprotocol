@@ -1,7 +1,3 @@
-"""
-Judge Agent - FIXED FOR GEMINI 3 FLASH + OPIK PROMPT
-The Supreme Court of Engineering - final binding verdict.
-"""
 
 import json
 import logging
@@ -20,7 +16,7 @@ logger = logging.getLogger(__name__)
 @track_agent(name="Judge Agent", agent_type="llm", tags=["final-verdict", "gemini-3", "supreme-court"])
 async def arbitrate_level(state: AnalysisState) -> AnalysisState:
     """
-    Agent 5: Technical Judge (The Supreme Court)
+    Agent 5: Technical Judge )
     
     Responsibilities:
     1. Reconcile Bayesian Math, Grader verdict, and Reviewer forensics

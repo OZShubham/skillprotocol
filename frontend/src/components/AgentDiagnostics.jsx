@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion'
 import { 
   CheckCircle2, FileCode, Scale, ShieldCheck, 
-  Terminal, Eye, Shield, Check, Activity 
+  Terminal, Eye, Shield, Check, Activity, TrendingUp, AlertTriangle 
 } from 'lucide-react'
 
 export default function AgentDiagnostics({ result }) {
@@ -34,41 +34,58 @@ export default function AgentDiagnostics({ result }) {
     {
       id: 'scanner',
       label: 'Scanner Agent',
-      role: 'Forensic Extraction',
+      role: 'Complete Analysis (NCrF + Semantic)',  // ← UPDATED ROLE
       icon: Terminal,
       status: (result.scan_metrics || isJobComplete) ? 'success' : 'pending',
       evidence: result.scan_metrics?.ncrf ? [
         `${fmt(result.scan_metrics.ncrf.total_sloc)} Lines of Code`,
         `${result.scan_metrics.ncrf.files_scanned} Files Parsed`,
-        `Dominant: ${result.scan_metrics.ncrf.dominant_language || 'Unknown'}`
-      ] : ['Scanning codebase structure...']
+        `Dominant: ${result.scan_metrics.ncrf.dominant_language || 'Unknown'}`,
+        result.scan_metrics.ncrf.global_patterns?.has_async ? '✓ Async Patterns Detected' : '',
+        result.scan_metrics.ncrf.global_patterns?.has_error_handling ? '✓ Error Handling Present' : '',
+        // ADD THESE NEW LINES (semantic analysis info):
+        result.scan_metrics.architecture_analysis?.unique_patterns_count 
+          ? `🎨 ${result.scan_metrics.architecture_analysis.unique_patterns_count} Design Patterns` 
+          : '',
+        result.scan_metrics.semantic_report?.sophistication_level 
+          ? `📊 Sophistication: ${result.scan_metrics.semantic_report.sophistication_level}` 
+          : '',
+        result.scan_metrics.semantic_report?.semantic_multiplier 
+          ? `🔢 Semantic: ${result.scan_metrics.semantic_report.semantic_multiplier.toFixed(2)}x` 
+          : ''
+      ].filter(Boolean) : ['Scanning codebase structure...']
     },
-    {
-      id: 'reviewer',
-      label: 'Reviewer Agent',
-      role: 'Semantic Analysis',
-      icon: Eye,
-      // FIX: Use isJobComplete fallback if specific semantic data is missing
-      status: (result.semantic_multiplier || result.scan_metrics?.quality_report || isJobComplete) ? 'success' : 'pending',
-      evidence: (result.scan_metrics?.quality_report || isJobComplete) ? [
-        `Sophistication: ${result.scan_metrics?.quality_report?.sophistication || 'Standard'}`,
-        `Design Patterns: Detected`,
-        `Quality Checks: Passed`
-      ] : ['Analyzing architectural patterns...']
-    },
+        
     {
       id: 'grader',
       label: 'Grader Agent',
       role: 'SFIA Assessment',
       icon: Scale,
       status: (result.sfia_result || isJobComplete) ? 'success' : 'pending',
-      evidence: result.sfia_result ? [
-        `Initial Assessment: Level ${result.sfia_result.sfia_level}`,
-        `Confidence Score: ${((result.sfia_result.confidence || 0) * 100).toFixed(0)}%`,
-        result.sfia_result.missing_for_next_level?.length > 0 
-          ? `Gap: ${result.sfia_result.missing_for_next_level[0].slice(0, 30)}...` 
-          : 'No major gaps detected'
-      ] : ['Evaluating capabilities...']
+      evidence: (() => {
+        if (!result.sfia_result) return ['Evaluating capabilities...'];
+        
+        const baseEvidence = [
+          `Initial Assessment: Level ${result.sfia_result.sfia_level}`,
+          `Confidence: ${((result.sfia_result.confidence || 0) * 100).toFixed(0)}%`,
+          result.sfia_result.bayesian_agreement 
+            ? '✓ Aligned with Statistical Prior' 
+            : '⚠ Deviated from Bayesian Model'
+        ];
+
+        // Add tool usage if available
+        if (result.sfia_result.tool_calls_made) {
+          baseEvidence.push(`🔧 Used ${result.sfia_result.tool_calls_made} tools for analysis`);
+        }
+
+        // Add patterns found
+        if (result.sfia_result.patterns_found) {
+          baseEvidence.push(`📐 ${result.sfia_result.patterns_found} design patterns identified`);
+        }
+
+        return baseEvidence;
+      })(),
+      detailedEvidence: result.sfia_result?.evidence_used || []
     },
     {
       id: 'judge',
@@ -78,14 +95,17 @@ export default function AgentDiagnostics({ result }) {
       status: isJobComplete ? 'success' : 'pending',
       isIntervention: result.sfia_result?.judge_intervened,
       evidence: result.sfia_result?.judge_intervened ? [
-        `⚠️ INTERVENTION: Overruled Grader`,
+        `⚖️ INTERVENTION: Overruled Initial Assessment`,
         `Final Verdict: Level ${result.sfia_result.sfia_level}`,
-        `Reason: Congruence Check Failed`
+        `Reason: ${result.sfia_result.judge_summary?.slice(0, 60)}...`,
+        `Confidence: ${((result.sfia_result.judge_confidence || 0) * 100).toFixed(0)}%`
       ] : [
         `✓ Ratified Grader Assessment`,
-        `Congruence Score: 100%`,
-        `Verdict: Verified`
-      ]
+        `Congruence: ${result.sfia_result?.is_congruent ? 'Verified' : 'Under Review'}`,
+        result.validation_result?.bayesian_best_estimate 
+          ? `Bayesian Prior: Level ${result.validation_result.bayesian_best_estimate}` 
+          : ''
+      ].filter(Boolean)
     },
     {
       id: 'auditor',
@@ -93,11 +113,48 @@ export default function AgentDiagnostics({ result }) {
       role: 'Reality Check',
       icon: Check,
       status: (result.audit_result || isJobComplete) ? 'success' : 'pending',
-      evidence: result.audit_result ? [
-        `CI/CD Status: ${result.audit_result.reality_check_passed ? 'PASS' : 'FAIL'}`,
-        result.audit_result.workflow_name ? `Workflow: ${result.audit_result.workflow_name}` : 'No workflows found',
-        `Penalty Applied: ${result.audit_result.penalty_applied ? 'Yes (-50%)' : 'No'}`
-      ] : ['Checking build status...']
+      evidence: (() => {
+        if (!result.audit_result) return ['Checking build status...'];
+        
+        const audit = result.audit_result;
+        
+        // No CI/CD case
+        if (audit.has_ci_cd === false) {
+          return [
+            'No CI/CD configured',
+            '✓ No penalty applied',
+            'Recommendation: Add GitHub Actions'
+          ];
+        }
+        
+        // Has CI/CD
+        return [
+          `CI/CD Status: ${audit.reality_check_passed ? '✓ PASS' : '✗ FAIL'}`,
+          audit.workflow_name ? `Workflow: ${audit.workflow_name}` : '',
+          audit.github_actions_status ? `Last Run: ${audit.github_actions_status}` : '',
+          `Penalty Applied: ${audit.penalty_applied ? 'Yes (-50%)' : 'No'}`
+        ].filter(Boolean);
+      })()
+    },
+    {
+      id: 'mentor',
+      label: 'Mentor Agent',
+      role: 'Growth Planning',
+      icon: TrendingUp,
+      status: (result.mentorship_plan || isJobComplete) ? 'success' : 'pending',
+      evidence: (() => {
+        if (!result.mentorship_plan) return ['Generating personalized roadmap...'];
+        
+        const plan = result.mentorship_plan;
+        return [
+          plan.quick_wins ? `⚡ ${plan.quick_wins.length} Quick Wins Identified` : '',
+          plan.credit_projection ? `💰 Potential: +${plan.credit_projection.percentage_increase.toFixed(0)}% credits` : '',
+          plan.actionable_roadmap ? `📋 ${plan.actionable_roadmap.length}-step roadmap created` : '',
+          plan.next_level_requirements?.estimated_effort_hours 
+            ? `⏱️ Est. ${plan.next_level_requirements.estimated_effort_hours}h to next level` 
+            : ''
+        ].filter(Boolean);
+      })()
     }
   ];
 
@@ -166,6 +223,26 @@ export default function AgentDiagnostics({ result }) {
                     </div>
                   ))}
                 </div>
+
+                {/* Detailed Evidence (for Grader) */}
+                {step.detailedEvidence && step.detailedEvidence.length > 0 && (
+                  <div className="mt-3 bg-surface p-3 rounded-lg border border-border">
+                    <div className="text-[10px] text-text-dim uppercase mb-2 font-bold">Evidence Citations</div>
+                    <div className="space-y-1">
+                      {step.detailedEvidence.slice(0, 5).map((evidence, i) => (
+                        <div key={i} className="text-xs text-text-muted flex items-center gap-2 font-mono">
+                          <FileCode className="w-3 h-3 text-primary" />
+                          {evidence}
+                        </div>
+                      ))}
+                      {step.detailedEvidence.length > 5 && (
+                        <div className="text-[10px] text-text-dim italic">
+                          +{step.detailedEvidence.length - 5} more citations
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           ))}
