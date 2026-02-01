@@ -1,5 +1,3 @@
-
-
 import os
 import stat
 import sys
@@ -23,7 +21,7 @@ from opik import opik_context
 from app.core.opik_config import track_agent
 from app.utils.sse import push_live_log
 
-# NEW: Import semantic analysis capability
+# NEW: Import prompt manager
 from app.core.prompt_manager import prompt_manager
 
 # ============================================================================
@@ -63,7 +61,7 @@ def _read_file_cached(file_path: str, max_chars: int = 5000) -> str:
         return ""
 
 # ============================================================================
-# NEW: SEMANTIC ANALYSIS 
+# NEW: SEMANTIC ANALYSIS (UPDATED FOR OPENROUTER)
 # ============================================================================
 
 async def _perform_semantic_analysis(
@@ -72,15 +70,7 @@ async def _perform_semantic_analysis(
     quality_analysis: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
-    Perform semantic analysis using Gemini to assess architectural sophistication.
-    
-    Args:
-        sample_files: Code samples from Scanner
-        architecture_analysis: Pattern detection results
-        quality_analysis: Quality metrics
-    
-    Returns:
-        Semantic report with multiplier
+    Perform semantic analysis using OpenRouter (via PromptManager) to assess sophistication.
     """
     
     if not sample_files:
@@ -91,7 +81,7 @@ async def _perform_semantic_analysis(
             "analysis_skipped": True
         }
     
-    # Prepare code samples for Gemini
+    # Prepare code samples
     code_samples_text = ""
     for idx, sample in enumerate(sample_files[:5], 1):
         code_samples_text += f"\n### Sample {idx}: {sample.get('path', 'unknown')}\n"
@@ -140,30 +130,28 @@ Output ONLY valid JSON, no markdown, no extra text.
 """
     
     try:
-        # Call Gemini with low thinking mode
-        gemini_response = await prompt_manager.call_gemini(
-            semantic_prompt,
-            thinking_level="low"
+        # ---------------------------------------------------------
+        # CHANGED: Use prompt_manager.call_llm (OpenAI SDK / OpenRouter)
+        # ---------------------------------------------------------
+        response_text = await prompt_manager.call_llm(
+            prompt_text=semantic_prompt,
+            model=settings.SEMANTIC_MODEL,  # Uses google/gemini-3-flash-preview
+            temperature=0.1,
+            json_mode=True,                 # Force JSON response format
+            enable_reasoning=False          # Semantic analysis is fast, no deep reasoning needed
         )
         
         # Parse response
-        json_match = re.search(r'\{.*\}', gemini_response, re.DOTALL)
-        if json_match:
-            gemini_analysis = json.loads(json_match.group())
-        else:
-            gemini_analysis = {
-                "architectural_maturity": 5,
-                "semantic_multiplier": 1.0,
-                "reasoning": "Could not parse Gemini response",
-                "confidence": 0.5
-            }
+        # Sometimes models wrap JSON in markdown blocks even with json_mode
+        clean_text = response_text.replace("```json", "").replace("```", "").strip()
+        gemini_analysis = json.loads(clean_text)
     
     except Exception as e:
         print(f"⚠️ Semantic analysis failed: {e}")
         gemini_analysis = {
             "architectural_maturity": 5,
             "semantic_multiplier": 1.0,
-            "reasoning": f"Gemini analysis failed: {str(e)}. Using automated analysis.",
+            "reasoning": f"LLM analysis failed: {str(e)}. Using automated analysis.",
             "confidence": 0.6,
             "error": str(e)
         }
@@ -195,7 +183,6 @@ Output ONLY valid JSON, no markdown, no extra text.
     }
     
     return semantic_report
-
 
 
 def _analyze_architecture_patterns(sample_files: list, repo_path: str) -> dict:
@@ -311,7 +298,6 @@ def _analyze_architecture_patterns(sample_files: list, repo_path: str) -> dict:
     }
 
 
-
 def _analyze_code_quality(sample_files: list) -> dict:
     """
     Analyze code quality indicators from samples.
@@ -365,7 +351,6 @@ def _analyze_code_quality(sample_files: list) -> dict:
     }
 
 
-
 @track_agent(
     name="Scanner Agent (Enhanced)",
     agent_type="tool",
@@ -388,7 +373,8 @@ async def scan_codebase(state: AnalysisState) -> AnalysisState:
         
         push_live_log(job_id, "scanner", "Cloning repository...", "success")
         
-        # =======================================(UNCHANGED)
+        # ====================================================================
+        # PHASE 1: CLONE
         # ====================================================================
         try:
             loop = asyncio.get_event_loop()
@@ -473,6 +459,8 @@ async def scan_codebase(state: AnalysisState) -> AnalysisState:
         
         
         # ====================================================================
+        # PHASE 6: SEMANTIC ANALYSIS (UPDATED)
+        # ====================================================================
         push_live_log(job_id, "scanner", "Performing semantic analysis with Gemini...", "success")
         semantic_report = await _perform_semantic_analysis(
             sample_files,
@@ -489,18 +477,13 @@ async def scan_codebase(state: AnalysisState) -> AnalysisState:
             "quality_multiplier": quality_multiplier,
             "quality_report": quality_report,
             
-            
             "architecture_analysis": architecture_analysis,
             "code_quality_analysis": quality_analysis,
-            
             
             "semantic_report": semantic_report
         }
         
-        
         state["semantic_multiplier"] = semantic_report["semantic_multiplier"]
-        
-       
         state["semantic_report"] = semantic_report
         
         # Log to Opik
@@ -542,7 +525,6 @@ async def scan_codebase(state: AnalysisState) -> AnalysisState:
 def _get_critical_files(repo_path: str, n: int = 10) -> list:
     """
     Heuristic to find 'Main Logic' files.
-    UNCHANGED from original
     """
     candidates = []
     logic_extensions = {'.py', '.js', '.ts', '.tsx', '.java', '.go', '.rs', '.cpp', '.cs'}

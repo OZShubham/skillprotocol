@@ -1,198 +1,200 @@
 import asyncio
 import sys
 import os
+import time
 import json
 import opik
-from opik.evaluation import evaluate
-from opik.evaluation.metrics import Hallucination, AnswerRelevance
+from typing import Dict, Any
 
-# Your Custom Task Span Metric
-from app.evaluation.custom_metrics import BayesianAlignmentMetric
+from opik.evaluation import evaluate
+from opik import track
+from opik.evaluation.metrics import Hallucination, BaseMetric, score_result
+
+# App Imports
 from app.evaluation.runner import SkillProtocolEvaluationRunner
 from app.core.config import settings
 from dotenv import load_dotenv
 
 load_dotenv()
 
-async def main():
-    # 1. Setup Environment - Gemini Configuration
-    if hasattr(settings, 'GOOGLE_API_KEY') and settings.GOOGLE_API_KEY:
-        os.environ["GOOGLE_API_KEY"] = settings.GOOGLE_API_KEY
-    elif hasattr(settings, 'GEMINI_API_KEY') and settings.GEMINI_API_KEY:
-        os.environ["GEMINI_API_KEY"] = settings.GEMINI_API_KEY
-    else:
-        raise ValueError("Please set GOOGLE_API_KEY or GEMINI_API_KEY in your environment")
-    
-    experiment_name = sys.argv[1] if len(sys.argv) > 1 else "baseline-v1"
-    
-    runner = SkillProtocolEvaluationRunner()
-    client = opik.Opik(project_name="skillprotocol-evals")
+# =========================================================
+# 1. Custom Metrics (SFIA Accuracy)
+# =========================================================
 
-    # 2. Pull the Golden Dataset and Debug
-    print(f"📦 Fetching Golden Dataset: sfia-golden-v1...")
-    try:
-        dataset = client.get_dataset(name="sfia-golden-v1")
-        
-        # DEBUG: Check what's actually in the dataset
-        dataset_items = list(dataset.get_items())
-        print(f"✅ Dataset loaded with {len(dataset_items)} items")
-        
-        print(f"\n📊 Dataset Contents:")
-        for i, item in enumerate(dataset_items):
-            if hasattr(item, 'input') and hasattr(item, 'expected_output'):
-                repo_url = item.input
-                expected_level = item.expected_output
-            else:
-                repo_url = item.get("input", "Unknown")
-                expected_level = item.get("expected_output", "Unknown")
-            
-            print(f"  [{i+1}] {repo_url} -> Level {expected_level}")
-        
-        # Ask user if they want to continue with this dataset
-        if len(dataset_items) == 0:
-             print("❌ Dataset is empty. Please run 'python -m app.scripts.run_feedback_loop' or create the dataset first.")
-             return
+class SfiaAccuracyMetric(BaseMetric):
+    """
+    Checks if the predicted SFIA level matches the expected level.
+    """
+    def __init__(self, name="SFIA_Accuracy"):
+        super().__init__(name=name)
 
-    except Exception as e:
-        print(f"❌ Dataset not found: {e}")
-        print("💡 Make sure 'sfia-golden-v1' exists in your Opik workspace")
-        return
-
-    # 3. Define the Evaluation Task
-    from opik import track
-    
-    @track(name="SFIA Repository Analysis", type="task")
-    def evaluation_task(dataset_item): 
+    def score(self, expected_output: str, output: str, **kwargs) -> score_result.ScoreResult:
         """
-        This task MUST be decorated with @track and MUST be synchronous
+        Args:
+            expected_output: The expected SFIA level from the dataset (string or int).
+            output: The reasoning/output string from the LLM.
+            **kwargs: Extra data passed from the evaluation task (like sfia_result).
         """
-        if hasattr(dataset_item, 'input') and hasattr(dataset_item, 'expected_output'):
-            repo_url = dataset_item.input
-            expected_sfia_level = int(dataset_item.expected_output)
-        else:
-            repo_url = dataset_item["input"]
-            expected_sfia_level = int(dataset_item["expected_output"])
-            
-        repo_name = repo_url.split('/')[-1]
-        
-        print(f"🔄 Processing: {repo_name} (Expected Level: {expected_sfia_level})")
-        
         try:
-            # Use asyncio.run to call the async function from sync context
-            final_state = asyncio.run(runner.run_analysis_internal(
-                repo_url=repo_url,
-                job_id=f"eval_{repo_name}",
-                model="gemini/gemini-2.0-flash"
-            ))
+            # 1. Parse Expected Level
+            expected = int(expected_output)
             
-            # Extract results for evaluation
-            sfia_result = final_state.get("sfia_result", {})
-            validation_result = final_state.get("validation_result", {})
-            scan_metrics = final_state.get("scan_metrics", {})
-            
-            # --- FIX: PREPARE DATA FOR OPIK METRICS ---
-            # 1. Determine the "Output" string (The reasoning text)
-            agent_reasoning = sfia_result.get("reasoning", "No reasoning provided.")
-            if sfia_result.get("judge_intervened"):
-                agent_reasoning = sfia_result.get("judge_summary") or sfia_result.get("judge_justification") or agent_reasoning
+            # 2. Parse Predicted Level
+            # We prefer using the structured 'sfia_result' passed in kwargs if available
+            sfia_result = kwargs.get("sfia_result", {}) 
+            predicted = 0
 
-            # 2. Determine "Context" (The evidence used)
-            # We summarize metrics to avoid token limits
-            ncrf = scan_metrics.get("ncrf", {})
-            context_summary = (
-                f"SLOC: {ncrf.get('total_sloc')}, "
-                f"Complexity: {ncrf.get('total_complexity')}, "
-                f"Bayesian Prior: Level {validation_result.get('bayesian_best_estimate')}"
+            if sfia_result and "sfia_level" in sfia_result:
+                predicted = int(sfia_result["sfia_level"])
+            else:
+                # Fallback: Try to parse generic JSON from the output string
+                try:
+                    clean = output.replace("```json", "").replace("```", "").strip()
+                    data = json.loads(clean)
+                    predicted = int(data.get("sfia_level", 0))
+                except:
+                    predicted = 0
+
+            # 3. Score Logic
+            if predicted == expected:
+                return score_result.ScoreResult(
+                    value=1.0, 
+                    name=self.name, 
+                    reason=f"Exact Match: Predicted L{predicted} == Expected L{expected}"
+                )
+            elif abs(predicted - expected) == 1:
+                return score_result.ScoreResult(
+                    value=0.5, 
+                    name=self.name, 
+                    reason=f"Close: Predicted L{predicted} vs Expected L{expected}"
+                )
+            else:
+                return score_result.ScoreResult(
+                    value=0.0, 
+                    name=self.name, 
+                    reason=f"Miss: Predicted L{predicted} vs Expected L{expected}"
+                )
+                
+        except Exception as e:
+            return score_result.ScoreResult(
+                value=0.0, 
+                name=self.name, 
+                reason=f"Scoring Error: {str(e)}"
             )
 
-            # Return the complete analysis state mapped to standard keys
-            return {
-                # Standard keys for built-in Opik metrics (Hallucination, Relevance)
-                "input": f"Analyze the repository {repo_url} and assign an SFIA level.",
-                "output": agent_reasoning,
-                "context": [context_summary],
-                
-                # Custom keys for your custom metrics (BayesianAlignmentMetric)
-                "repo_url": repo_url,
-                "repo_name": repo_name,
-                "expected_sfia_level": expected_sfia_level,
-                "sfia_result": sfia_result,
-                "validation_result": validation_result,
-                "scan_metrics": scan_metrics,
-                "full_state": final_state
-            }
-            
-        except Exception as e:
-            print(f"❌ Error processing {repo_name}: {str(e)}")
-            return {
-                "input": repo_url,
-                "output": f"Error: {str(e)}",
-                "context": [],
-                "repo_url": repo_url,
-                "repo_name": repo_name,
-                "expected_sfia_level": expected_sfia_level,
-                "sfia_result": {},
-                "validation_result": {},
-                "scan_metrics": {},
-                "error": str(e)
-            }
+# =========================================================
+# 2. Main Execution
+# =========================================================
 
-    # 4. Initialize Metrics
-    print(f"🎯 Initializing evaluation metrics...")
+async def main():
+    # 1. Configure Environment
+    # Ensure API Key is set for Opik's internal LLM calls (LiteLLM)
+    if settings.OPENROUTER_API_KEY:
+        os.environ["OPENROUTER_API_KEY"] = settings.OPENROUTER_API_KEY
     
+    experiment_name = sys.argv[1] if len(sys.argv) > 1 else "OpenRouter-Migration-Test"
+    
+    # 2. Initialize Helper Classes
+    runner = SkillProtocolEvaluationRunner()
+    client = opik.Opik(project_name=settings.OPIK_PROJECT_NAME)
+
+    # 3. Load Dataset
+    print(f"📦 Fetching Dataset 'sfia-golden-v1'...")
     try:
-        metrics = [
-            # Your Custom Task Span Metric
-            BayesianAlignmentMetric(name="bayesian_alignment"),
-            
-            # Built-in Opik Metrics
-            # Note: We use flash-lite to avoid burning through free tier quota too fast
-            Hallucination(model="gemini/gemma-3-27b"),
-            AnswerRelevance(model="gemini/gemma-3-27b"),
-        ]
-        
-        print(f"✅ Initialized {len(metrics)} metrics")
-        
+        dataset = client.get_dataset(name="sfia-golden-v1")
+        if not dataset:
+             raise ValueError("Dataset not found")
     except Exception as e:
-        print(f"❌ Error initializing metrics: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Dataset Error: {e}")
+        print("💡 Tip: Run 'python -m app.scripts.run_feedback_loop' to create a dataset first.")
         return
 
-    # 5. Execute Experiment
-    print(f"\n🚀 Starting Experiment: {experiment_name}")
-    print(f"🤖 Using Gemini models for evaluation...")
-    
-    try:
-        result = evaluate(
-            dataset=dataset,
-            task=evaluation_task,
-            scoring_metrics=metrics,
-            experiment_name=experiment_name,
-            task_threads=1,  # Keep at 1 to avoid 429 Rate Limits on free tier
-            project_name="skillprotocol-evals"
-        )
+    # 4. Define the Evaluation Task
+    # This function wraps the complex async agent logic into a format Opik understands.
+    @track(name="Evaluation Task", type="general") 
+    def evaluation_task(dataset_item: Dict[str, Any]):
+        """
+        Takes a dataset item, runs the agent, and returns a dict mapping to metric arguments.
+        """
+        # Extract input from dataset item
+        # Opik dataset items can be dicts or objects depending on SDK version/context
+        repo_url = dataset_item.get("input")
+        
+        repo_name = repo_url.split('/')[-1] if repo_url else "unknown"
+        print(f"🔄 Analyzing: {repo_name}")
 
-        print(f"\n{'='*60}")
-        print(f"🏆 EXPERIMENT COMPLETED: {experiment_name}")
-        print(f"{'='*60}")
-        
-        # Display results
-        if hasattr(result, 'aggregate_scores'):
-            print(f"\n📊 AGGREGATE SCORES:")
-            for metric_name, score in result.aggregate_scores.items():
-                print(f"🔹 {metric_name}: {score:.3f}")
-        
-        workspace = getattr(settings, 'OPIK_WORKSPACE', 'your-workspace')
-        print(f"\n🔗 View detailed results: https://www.comet.com/{workspace}/opik/projects/skillprotocol-evals/experiments")
-        
-        return result
-        
-    except Exception as e:
-        print(f"❌ Evaluation failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
+        try:
+            # Run the actual agents (using asyncio.run since evaluate() expects a sync function)
+            # We create a unique job_id for this specific evaluation run
+            job_id = f"eval_{repo_name}_{int(time.time())}"
+            
+            final_state = asyncio.run(runner.run_analysis_internal(
+                repo_url=repo_url,
+                job_id=job_id,
+                model=settings.DEFAULT_MODEL 
+            ))
+
+            # Extract results from the agent state
+            sfia_result = final_state.get("sfia_result", {})
+            scan_metrics = final_state.get("scan_metrics", {})
+            ncrf = scan_metrics.get("ncrf", {})
+            validation = final_state.get("validation_result", {})
+            
+            # Prepare the "output" string (usually the reasoning)
+            reasoning = sfia_result.get("reasoning") or "No reasoning provided."
+            
+            # Prepare context string for Hallucination metric
+            context_str = (
+                f"Data: SLOC={ncrf.get('total_sloc')}, "
+                f"Complexity={ncrf.get('total_complexity')}, "
+                f"Markers={scan_metrics.get('markers', {})}. "
+                f"Bayesian Estimate: {validation.get('bayesian_best_estimate')}"
+            )
+
+            # RETURN DICT KEYS MUST MATCH METRIC .score() ARGUMENTS
+            return {
+                "input": repo_url,          # For Hallucination metric
+                "output": reasoning,        # For Hallucination/SfiaAccuracy metrics
+                "context": [context_str],   # For Hallucination metric
+                "sfia_result": sfia_result, # For SfiaAccuracy metric (via kwargs)
+                # Map dataset's expected output to the metric's argument name
+                "expected_output": dataset_item.get("expected_output") 
+            }
+
+        except Exception as e:
+            print(f"❌ Error processing {repo_name}: {e}")
+            return {
+                "input": repo_url, 
+                "output": f"Error: {str(e)}", 
+                "context": [], 
+                "sfia_result": {},
+                "expected_output": "0"
+            }
+
+    # 5. Configure Metrics
+    
+    # Hallucination Metric (LLM-as-a-Judge)
+    hallucination_metric = Hallucination(
+        name="Hallucination_Check",
+        model="openrouter/google/gemini-2.0-flash-001" 
+    )
+
+    # Accuracy Metric (Heuristic/Custom)
+    accuracy_metric = SfiaAccuracyMetric(name="Accuracy")
+
+    eval_metrics = [accuracy_metric, hallucination_metric]
+
+    # 6. Start Evaluation
+    print(f"\n🚀 Starting Experiment: {experiment_name}")
+    
+    evaluate(
+        dataset=dataset,
+        task=evaluation_task,
+        scoring_metrics=eval_metrics,
+        experiment_name=experiment_name,
+        task_threads=1, # Keep strictly 1 to avoid Rate Limits/Async loop conflicts
+        project_name=settings.OPIK_PROJECT_NAME
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())

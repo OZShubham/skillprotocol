@@ -1,47 +1,43 @@
 # backend/app/evaluation/metrics.py
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from opik.evaluation.metrics import BaseMetric, score_result
 
 class SfiaLevelAccuracy(BaseMetric):
     """
-    PRIMARY METRIC: Did we assign the correct SFIA level?
+    Checks if the predicted SFIA level matches the expected level.
     """
-    def __init__(self, name: str = "sfia_accuracy", model=None):
-        # We accept 'model' arg to be compatible with Opik instantiation in runner.py
-        self.name = name
+    def __init__(self, name: str = "sfia_accuracy"):
+        super().__init__(name=name)
 
-    def score(self, dataset_item: Dict[str, Any], llm_output: Dict[str, Any], **kwargs) -> score_result.ScoreResult:
+    def score(self, dataset_item: Dict[str, Any], llm_output: Dict[str, Any] = None, **kwargs) -> score_result.ScoreResult:
         try:
-            # 1. Safe extraction of predicted level
-            sfia_result = llm_output.get("sfia_result")
-            if not sfia_result:
-                # Fallback: check if 'predicted' key exists (common in eval traces)
-                sfia_result = llm_output.get("predicted") or {}
+            # Handle cases where input might be direct values or dicts
+            expected_val = dataset_item.get("expected_sfia_level") or dataset_item.get("expected_output")
+            expected = int(expected_val)
+            
+            # Extract predicted from the output dictionary or the raw string if needed
+            # The 'llm_output' here comes from your evaluation_task return value
+            if isinstance(llm_output, dict):
+                sfia_result = llm_output.get("sfia_result", {})
+                predicted = sfia_result.get("sfia_level", 0)
+            else:
+                # Fallback if output is raw string
+                predicted = 0
 
-            predicted = sfia_result.get("sfia_level", 0)
-            
-            if predicted == 0:
-                return score_result.ScoreResult(
-                    name=self.name,
-                    value=0.0,
-                    reason="No SFIA level predicted"
-                )
-            
-            # 2. Comparison
-            expected = int(dataset_item.get("expected_sfia_level", 0))
             predicted = int(predicted)
             diff = abs(predicted - expected)
             
             if diff == 0:
-                return score_result.ScoreResult(name=self.name, value=1.0, reason=f"✓ Perfect match: {predicted}")
+                return score_result.ScoreResult(name=self.name, value=1.0, reason=f"Perfect match (L{predicted})")
             elif diff == 1:
-                return score_result.ScoreResult(name=self.name, value=0.5, reason=f"~ Close match: {predicted} vs {expected}")
+                return score_result.ScoreResult(name=self.name, value=0.5, reason=f"Close match (Pred: {predicted}, Exp: {expected})")
             else:
-                return score_result.ScoreResult(name=self.name, value=0.0, reason=f"✗ Mismatch: {predicted} vs {expected}")
+                return score_result.ScoreResult(name=self.name, value=0.0, reason=f"Mismatch (Pred: {predicted}, Exp: {expected})")
         
         except Exception as e:
-            return score_result.ScoreResult(name=self.name, value=0.0, reason=f"Error: {str(e)}")
+            return score_result.ScoreResult(name=self.name, value=0.0, reason=f"Scoring Error: {str(e)}")
+        
 
 class CreditRangeConsistency(BaseMetric):
     """

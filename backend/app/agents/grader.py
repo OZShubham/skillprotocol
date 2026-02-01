@@ -1,12 +1,11 @@
-
-
 import json
 import logging
 import re
 from typing import Dict, Any, List, Literal, Union
 from pathlib import Path
 
-from langchain_groq import ChatGroq
+# CHANGED: Swapped ChatGroq for ChatOpenAI (Standard adapter for OpenRouter)
+from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain.tools import tool
@@ -16,10 +15,13 @@ from app.core.state import AnalysisState
 from app.core.config import settings
 from app.core.opik_config import track_agent
 from app.utils.sse import push_live_log
+from app.core.prompt_manager import prompt_manager
 
 logger = logging.getLogger(__name__)
 
-
+# ============================================================================
+# CONSTANTS & CRITERIA
+# ============================================================================
 
 LEVEL_CRITERIA = {
     "1": {
@@ -322,19 +324,12 @@ class GraderResult(BaseModel):
 @track_agent(
     name="Grader Agent (Refactored)",
     agent_type="llm",
-    tags=["modern", "simplified-tools", "uses-scanner-data", "efficient"]
+    tags=["grader", "openrouter"]
 )
 async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
     """
-    Grader Agent - REFACTORED
-    
-    Key Changes:
-    - Uses pre-analyzed data from Scanner (no redundant analysis)
-    - Simplified from 7 tools to 3 tools
-    - Faster execution (fewer tool calls)
-    - Same accuracy (all data still available)
+    Grader Agent - REFACTORED FOR OPENROUTER
     """
-    
     job_id = state["job_id"]
     state["current_step"] = "grader"
     
@@ -342,43 +337,35 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
     push_live_log(job_id, "grader", "🚀 Grader: Using pre-analyzed data from Scanner...", "success")
     
     # ====================================================================
-    # EXTRACT PRE-ANALYZED DATA FROM SCANNER
+    # EXTRACT PRE-ANALYZED DATA
     # ====================================================================
     scan_metrics = state.get("scan_metrics", {})
     if not scan_metrics:
         state["errors"].append("No scan metrics")
         return state
     
-    # NCrF data
+    # Data extraction
     ncrf = scan_metrics.get("ncrf", {})
-    
-    # Markers
     markers = scan_metrics.get("markers", {})
-    
-    # Architecture analysis (NEW from Scanner)
     architecture = scan_metrics.get("architecture_analysis", {})
     patterns_found = architecture.get("unique_patterns_count", 0)
     sophistication = architecture.get("sophistication_level", "Unknown")
-    
-    # Quality analysis (NEW from Scanner)
     quality = scan_metrics.get("code_quality_analysis", {})
     quality_level = quality.get("quality_level", "Unknown")
-    
-    # Semantic analysis (NEW from Scanner)
     semantic = scan_metrics.get("semantic_report", {})
     architectural_maturity = semantic.get("architectural_maturity", 5)
-    
-    # Bayesian prior
     validation_result = state.get("validation_result", {})
     bayesian_level = validation_result.get("bayesian_best_estimate", 3)
     bayesian_confidence = validation_result.get("confidence", 0.5)
-    
     repo_path = state.get("repo_path", "")
     
-    # Initialize LLM
-    llm = ChatGroq(
-        model=settings.LLM_MODEL,
-        api_key=settings.GROQ_API_KEY,
+    # --------------------------------------------------------------------
+    # CHANGED: Initialize LLM via ChatOpenAI (OpenRouter)
+    # --------------------------------------------------------------------
+    llm = ChatOpenAI(
+        model=settings.GRADER_MODEL, 
+        api_key=settings.OPENROUTER_API_KEY,
+        base_url=settings.LLM_BASE_URL,
         temperature=0.1,
         max_retries=2
     )
@@ -390,92 +377,122 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         read_selected_files  # Only for spot-checks if needed
     ]
     
-    # ====================================================================
-    # ENHANCED SYSTEM PROMPT - Uses Pre-Analyzed Data
-    # ====================================================================
-    system_prompt = f"""You are an Elite SFIA Assessment Specialist.
+    prompt_variables = {
+        "sloc": ncrf.get('total_sloc', 0),
+        "complexity": ncrf.get('total_complexity', 0),
+        "complexity_density": f"{ncrf.get('complexity_density', 0):.3f}",
+        "avg_mi": ncrf.get('avg_mi', 65),
+        "dominant_language": ncrf.get('dominant_language', 'Unknown'),
+        "files_scanned": ncrf.get('files_scanned', 0),
+        "patterns_found": architecture.get("unique_patterns_count", 0),
+        "sophistication": semantic.get("sophistication_level", "Unknown"),
+        "architectural_maturity": semantic.get("architectural_maturity", 5),
+        "quality_level": quality.get("quality_level", "Unknown"),
+        "has_readme": markers.get('has_readme', False),
+        "has_tests": markers.get('has_tests', False),
+        "has_ci_cd": markers.get('has_ci_cd', False),
+        "has_docker": markers.get('has_docker', False),
+        "has_error_handling": markers.get('has_error_handling', False),
+        "uses_async": markers.get('uses_async', False),
+        "has_modular_structure": markers.get('has_modular_structure', False),
+        "bayesian_level": bayesian_level,
+        "bayesian_confidence": f"{bayesian_confidence:.0%}",
+        "repo_path": repo_path
+    }
 
-**🎯 MISSION:** Accurately assess SFIA level (1-5) using pre-analyzed data.
+    # Fetch and Format from Opik (With Full Fallback)
+    try:
+        system_prompt = prompt_manager.format_prompt("sfia-grader-v2", prompt_variables)
+    except Exception as e:
+        logger.error(f"Failed to fetch prompt from Opik: {e}")
+        
+        # ----------------------------------------------------------------
+        # FULL FALLBACK PROMPT RESTORED
+        # ----------------------------------------------------------------
+        system_prompt = f"""You are an Elite SFIA Assessment Specialist.
 
-**📊 PRE-ANALYZED REPOSITORY DATA (from Scanner):**
+            **🎯 MISSION:** Accurately assess SFIA level (1-5) using pre-analyzed data.
 
-**Quantitative Metrics:**
-- SLOC: {ncrf.get('total_sloc', 0):,}
-- Complexity: {ncrf.get('total_complexity', 0)}
-- Complexity Density: {ncrf.get('complexity_density', 0):.3f}
-- Maintainability Index: {ncrf.get('avg_mi', 65)}/100
-- Language: {ncrf.get('dominant_language', 'Unknown')}
-- Files Analyzed: {ncrf.get('files_scanned', 0)}
+            **📊 PRE-ANALYZED REPOSITORY DATA (from Scanner):**
 
-**Architectural Analysis:**
-- Design Patterns Found: {patterns_found}
-- Sophistication Level: {sophistication}
-- Architectural Maturity: {architectural_maturity}/10
-- Quality Level: {quality_level}
+            **Quantitative Metrics:**
+            - SLOC: {ncrf.get('total_sloc', 0):,}
+            - Complexity: {ncrf.get('total_complexity', 0)}
+            - Complexity Density: {ncrf.get('complexity_density', 0):.3f}
+            - Maintainability Index: {ncrf.get('avg_mi', 65)}/100
+            - Language: {ncrf.get('dominant_language', 'Unknown')}
+            - Files Analyzed: {ncrf.get('files_scanned', 0)}
 
-**Detected Markers:**
-- ✓ README: {markers.get('has_readme', False)}
-- ✓ Tests: {markers.get('has_tests', False)}
-- ✓ CI/CD: {markers.get('has_ci_cd', False)}
-- ✓ Docker: {markers.get('has_docker', False)}
-- ✓ Error Handling: {markers.get('has_error_handling', False)}
-- ✓ Async Patterns: {markers.get('uses_async', False)}
-- ✓ Modular Structure: {markers.get('has_modular_structure', False)}
+            **Architectural Analysis:**
+            - Design Patterns Found: {patterns_found}
+            - Sophistication Level: {sophistication}
+            - Architectural Maturity: {architectural_maturity}/10
+            - Quality Level: {quality_level}
 
-**🔮 STATISTICAL ANCHOR (Bayesian Prior):**
-- Bayesian Model Estimate: Level {bayesian_level} ({bayesian_confidence:.0%} confidence)
-- This is your STARTING POINT - deviate only with strong evidence
+            **Detected Markers:**
+            - ✓ README: {markers.get('has_readme', False)}
+            - ✓ Tests: {markers.get('has_tests', False)}
+            - ✓ CI/CD: {markers.get('has_ci_cd', False)}
+            - ✓ Docker: {markers.get('has_docker', False)}
+            - ✓ Error Handling: {markers.get('has_error_handling', False)}
+            - ✓ Async Patterns: {markers.get('uses_async', False)}
+            - ✓ Modular Structure: {markers.get('has_modular_structure', False)}
 
-**🛠️ AVAILABLE TOOLS (Use Strategically):**
+            **🔮 STATISTICAL ANCHOR (Bayesian Prior):**
+            - Bayesian Model Estimate: Level {bayesian_level} ({bayesian_confidence:.0%} confidence)
+            - This is your STARTING POINT - deviate only with strong evidence
 
-1. `get_level_criteria(level)` - Get rubric for a specific level
-2. `validate_level_assignment(...)` - Validate if repo meets level criteria
-3. `read_selected_files(...)` - Spot-check specific files (USE SPARINGLY)
+            **🛠️ AVAILABLE TOOLS (Use Strategically):**
 
-**⚠️ CRITICAL: You already have comprehensive analysis above.**
-**Do NOT use read_selected_files unless absolutely necessary to verify a specific claim.**
+            1. `get_level_criteria(level)` - Get rubric for a specific level
+            2. `validate_level_assignment(...)` - Validate if repo meets level criteria
+            3. `read_selected_files(...)` - Spot-check specific files (USE SPARINGLY)
 
-**🧠 ASSESSMENT WORKFLOW:**
+            **⚠️ CRITICAL: You already have comprehensive analysis above.**
+            **Do NOT use read_selected_files unless absolutely necessary to verify a specific claim.**
 
-**Step 1: Form Initial Hypothesis**
-Based on the pre-analyzed data above, what level seems appropriate?
-Consider:
-- SLOC range
-- Pattern count
-- Markers present
-- Bayesian prior
+            **🧠 ASSESSMENT WORKFLOW:**
 
-**Step 2: Get Rubric Criteria**
-Use `get_level_criteria(your_hypothesis)` to see exact requirements
+            **Step 1: Form Initial Hypothesis**
+            Based on the pre-analyzed data above, what level seems appropriate?
+            Consider:
+            - SLOC range
+            - Pattern count
+            - Markers present
+            - Bayesian prior
 
-**Step 3: Validate Against Rubric**
-Use `validate_level_assignment(...)` with the data provided above
+            **Step 2: Get Rubric Criteria**
+            Use `get_level_criteria(your_hypothesis)` to see exact requirements
 
-**Step 4: Make Final Decision**
-Based on validation results:
-- If pass_rate >= 80%: Approve level
-- If pass_rate < 60%: Try level below
-- Check for disqualifiers (no CI/CD → max L3, no tests → max L2)
+            **Step 3: Validate Against Rubric**
+            Use `validate_level_assignment(...)` with the data provided above
 
-**Step 5: Only if Uncertain**
-If validation is borderline AND you need to verify specific code:
-- Use `read_selected_files` to spot-check 1-2 critical files
-- This should be RARE - trust the Scanner's analysis
+            **Step 4: Make Final Decision**
+            Based on validation results:
+            - If pass_rate >= 80%: Approve level
+            - If pass_rate < 60%: Try level below
+            - Check for disqualifiers (no CI/CD → max L3, no tests → max L2)
 
-**⚠️ CRITICAL RULES:**
-1. TRUST the pre-analyzed data - it's comprehensive
-2. Use tools to GET RUBRIC and VALIDATE, not re-analyze
-3. Cite specific evidence from the metrics above
-4. Respect disqualifiers
-5. Align with Bayesian prior unless you have strong contrary evidence
+            **Step 5: Only if Uncertain**
+            If validation is borderline AND you need to verify specific code:
+            - Use `read_selected_files` to spot-check 1-2 critical files
+            - This should be RARE - trust the Scanner's analysis
 
-Repository Path (for spot-checks only): {repo_path}
+            **⚠️ CRITICAL RULES:**
+            1. TRUST the pre-analyzed data - it's comprehensive
+            2. Use tools to GET RUBRIC and VALIDATE, not re-analyze
+            3. Cite specific evidence from the metrics above
+            4. Respect disqualifiers
+            5. Align with Bayesian prior unless you have strong contrary evidence
 
-Provide your final assessment in the structured GraderResult format.
-"""
+            Repository Path (for spot-checks only): {repo_path}
+
+            Provide your final assessment in the structured GraderResult format.
+        """
     
     try:
         # Create agent with simplified tools
+        # Using standard create_agent approach
         agent = create_agent(
             model=llm,
             tools=tools,
@@ -500,6 +517,8 @@ Provide your final assessment in the structured GraderResult format.
         grader_result = result.get("structured_response")
         
         if not grader_result:
+            # Fallback if agent failed to structure but returned text
+            logger.warning("Agent returned no structure, trying direct generation")
             raise ValueError("No structured response from agent")
         
         push_live_log(job_id, "grader", "✅ Assessment complete!", "success")
@@ -524,17 +543,15 @@ Provide your final assessment in the structured GraderResult format.
         logger.info(
             f"[✅ Grader] Level {grader_result['sfia_level']} "
             f"({grader_result['confidence']:.0%} confidence) "
-            f"using {tool_calls_made} tool calls (vs ~8 previously)"
+            f"using {tool_calls_made} tool calls"
         )
         
         return state
         
     except Exception as e:
         logger.error(f"[❌ Grader] Error: {e}")
-        import traceback
-        traceback.print_exc()
         
-        # Fallback
+        # Fallback Mechanism: Use direct JSON mode if tools fail
         state["sfia_result"] = {
             "sfia_level": bayesian_level,
             "confidence": bayesian_confidence,

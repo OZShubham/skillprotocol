@@ -1,167 +1,122 @@
 """
 SkillProtocol - SFIA Grader Optimization Script
-Run this to scientifically tune the prompt used by the Grader Agent.
+Uses MetaPromptOptimizer to automatically improve the Grader's system prompt.
 """
 
 import os
 import sys
 import json
-import asyncio
-from dotenv import load_dotenv
-
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import opik
-from opik.evaluation.metrics import ScoreResult
+from opik.evaluation.metrics.score_result import ScoreResult
 from opik_optimizer import ChatPrompt, MetaPromptOptimizer
+from app.core.config import settings
 
-# Load Env
-load_dotenv()
+# Ensure LiteLLM has the API key
+if settings.OPENROUTER_API_KEY:
+    os.environ["OPENROUTER_API_KEY"] = settings.OPENROUTER_API_KEY
 
-# ============================================================================
-# 1. DEFINE THE METRIC (The "Judge")
-# ============================================================================
+# ---------------------------------------------------------
+# 1. Define Metric
+# ---------------------------------------------------------
 def sfia_accuracy_metric(dataset_item, llm_output):
-    """
-    Determines if the LLM correctly identified the SFIA level based on the markers.
-    """
     try:
-        # Extract JSON from potential markdown blocks
         clean_output = llm_output.replace("```json", "").replace("```", "").strip()
         data = json.loads(clean_output)
+        predicted = int(data.get("sfia_level", 0))
         
-        predicted_level = int(data.get("sfia_level", 0))
-        expected_level = int(dataset_item["expected_level"])
+        expected_val = dataset_item.get("expected_sfia_level") or dataset_item.get("expected_output")
+        expected = int(expected_val)
         
-        # Calculate score
-        diff = abs(predicted_level - expected_level)
-        
-        if diff == 0:
-            return ScoreResult(name="sfia_accuracy", value=1.0, reason="Perfect match")
-        elif diff == 1:
-            return ScoreResult(name="sfia_accuracy", value=0.5, reason=f"Close. Pred: {predicted_level}, Exp: {expected_level}")
-        else:
-            return ScoreResult(name="sfia_accuracy", value=0.0, reason=f"Failed. Pred: {predicted_level}, Exp: {expected_level}")
-            
-    except Exception as e:
-        return ScoreResult(name="sfia_accuracy", value=0.0, reason=f"Parse Error: {str(e)}")
+        diff = abs(predicted - expected)
+        if diff == 0: return ScoreResult(name="sfia", value=1.0, reason="Perfect")
+        elif diff == 1: return ScoreResult(name="sfia", value=0.5, reason="Close")
+        else: return ScoreResult(name="sfia", value=0.0, reason="Miss")
+    except:
+        return ScoreResult(name="sfia", value=0.0, reason="Parse Error")
 
-# ============================================================================
-# 2. DEFINE GOLDEN DATASET (Synthetic Repositories)
-# ============================================================================
-golden_dataset = [
-    {
-        "input": "A simple Python script folder.",
-        "context_markers": json.dumps({
-            "files_scanned": 1, 
-            "has_readme": False, 
-            "has_tests": False, 
-            "has_ci_cd": False
-        }),
-        "expected_level": 1
-    },
-    {
-        "input": "A collection of scripts with a requirements.txt but no structure.",
-        "context_markers": json.dumps({
-            "files_scanned": 5, 
-            "has_readme": True, 
-            "has_requirements": True, 
-            "has_modular_structure": False,
-            "has_tests": False
-        }),
-        "expected_level": 2
-    },
-    {
-        "input": "Standard Python package with modular code and README.",
-        "context_markers": json.dumps({
-            "files_scanned": 15, 
-            "has_readme": True, 
-            "has_requirements": True, 
-            "has_modular_structure": True,
-            "has_tests": False
-        }),
-        "expected_level": 3
-    },
-    {
-        "input": "Professional backend with Unit Tests and OOP patterns.",
-        "context_markers": json.dumps({
-            "files_scanned": 25, 
-            "has_modular_structure": True,
-            "has_tests": True, 
-            "has_docstrings": True,
-            "uses_design_patterns": True,
-            "has_ci_cd": False
-        }),
-        "expected_level": 4
-    },
-    {
-        "input": "Production System with Docker, CI/CD, and Async patterns.",
-        "context_markers": json.dumps({
-            "files_scanned": 50, 
-            "has_tests": True, 
-            "has_ci_cd": True, 
-            "has_docker": True, 
-            "uses_async": True,
-            "has_error_handling": True
-        }),
-        "expected_level": 5
-    }
-]
-
-# ============================================================================
-# 3. RUN OPTIMIZATION
-# ============================================================================
+# ---------------------------------------------------------
+# 2. Main Routine
+# ---------------------------------------------------------
 def main():
-    print("🚀 Starting Opik Agent Optimization for SkillProtocol...")
-    
-    # 1. Setup Opik
-    client = opik.Opik(workspace=os.getenv("OPIK_WORKSPACE"), project="skill-protocol-optimizer")
-    
-    # 2. Create Dataset
-    dataset_name = "sfia-golden-dataset-v1"
-    dataset = client.get_or_create_dataset(dataset_name)
-    dataset.insert(golden_dataset)
-    print(f"✅ Loaded dataset '{dataset_name}' with {len(golden_dataset)} items")
+    print("🚀 Starting Opik Optimizer...")
 
-    # 3. Define the Initial Prompt (The one we want to improve)
-    # This maps to the prompt in `app/services/scoring/engine.py`
-    initial_template = """
-    You are an SFIA Auditor. Analyze the following evidence and assign a level (1-5).
+    # Configure Opik
+    if not settings.OPIK_API_KEY:
+        print("❌ Error: OPIK_API_KEY is missing.")
+        return
+
+    opik.configure(
+        api_key=settings.OPIK_API_KEY,
+        workspace=settings.OPIK_WORKSPACE,
+        use_local=False 
+    )
+
+    client = opik.Opik(project_name=settings.OPIK_PROJECT_NAME)
     
-    Repo Context: {context_markers}
-    Description: {input}
+    # Load Dataset
+    try:
+        dataset = client.get_dataset(name="sfia-golden-v1")
+        if not dataset: raise ValueError("Dataset not found")
+        print("📦 Dataset Loaded")
+    except:
+        print("❌ Dataset missing. Run 'python -m app.scripts.run_feedback_loop' first.")
+        return
+
+    # Load Prompt
+    PROMPT_NAME = "sfia-grader-v2"
+    initial_messages = []
     
-    Return JSON with 'sfia_level'.
-    """
+    try:
+        chat_obj = client.get_chat_prompt(name=PROMPT_NAME)
+        if chat_obj:
+            print("✅ Loaded Chat Prompt")
+            initial_messages = getattr(chat_obj, "messages", None) or getattr(chat_obj, "template", [])
+        else:
+            prompt_obj = client.get_prompt(name=PROMPT_NAME)
+            if prompt_obj:
+                print("✅ Loaded Text Prompt")
+                initial_messages = [{"role": "user", "content": prompt_obj.prompt}]
+            else:
+                # Default fallback if prompt doesn't exist yet
+                print("⚠️ Prompt not found in library, using default.")
+                initial_messages = [{"role": "user", "content": "Analyze {{input}} and return JSON with sfia_level."}]
+    except Exception as e:
+        print(f"⚠️ Warning: {e}")
+
+    # Initialize Optimizer
+    OPTIMIZER_MODEL = "openrouter/google/gemini-2.0-flash-001" 
     
     prompt_object = ChatPrompt(
-        messages=[{"role": "user", "content": initial_template}],
-        model="openai/gpt-4o",  # Optimizer works best with powerful models
+        messages=initial_messages,
+        model=OPTIMIZER_MODEL, 
     )
 
-    # 4. Initialize MetaPrompt Optimizer
-    # This uses a recursive reasoning loop to improve the instructions
-    optimizer = MetaPromptOptimizer(model="openai/gpt-4o")
-
-    # 5. Execute Optimization
-    print("⏳ Running optimization loop (this may take a minute)...")
-    result = optimizer.optimize_prompt(
-        prompt=prompt_object,
-        dataset=dataset,
-        metric=sfia_accuracy_metric,
-        max_trials=3,  # Keep low for demo purposes
-        verbose=1
+    optimizer = MetaPromptOptimizer(
+        model=OPTIMIZER_MODEL, 
+        prompts_per_round=3  # Standard config per docs
     )
 
-    print("\n" + "="*60)
-    print("🏆 OPTIMIZATION COMPLETE")
-    print("="*60)
-    print(f"Original Score: {result.history[0]['score']:.2f}")
-    print(f"Final Score:    {result.history[-1]['score']:.2f}")
-    print("\n✨ BEST PROMPT FOUND:")
-    print(result.prompt)
-    print("\n(Copy this prompt back into app/services/scoring/engine.py)")
+    # Run Optimization
+    print(f"⏳ Optimizing... (This may take a few minutes)")
+    try:
+        result = optimizer.optimize_prompt(
+            prompt=prompt_object,
+            dataset=dataset,
+            metric=sfia_accuracy_metric,
+            max_trials=10, 
+            verbose=0  # ✅ STANDARD FIX: Disable progress bar to avoid tqdm error
+        )
+
+        print("\n🏆 OPTIMIZATION COMPLETE")
+        print(f"Original Score: {result.history[0]['score']:.2f}")
+        print(f"Best Score:     {result.best_score:.2f}")
+        
+        print("\n✨ BEST PROMPT FOUND:")
+        if result.prompt.messages:
+            print(result.prompt.messages[0]['content'])
+            
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
 if __name__ == "__main__":
     main()

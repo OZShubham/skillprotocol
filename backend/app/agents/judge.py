@@ -1,4 +1,3 @@
-
 import json
 import logging
 from typing import Dict, Any
@@ -13,10 +12,14 @@ from app.utils.sse import push_live_log
 
 logger = logging.getLogger(__name__)
 
-@track_agent(name="Judge Agent", agent_type="llm", tags=["final-verdict", "gemini-3", "supreme-court"])
+@track_agent(
+    name="Judge Agent", 
+    agent_type="llm", 
+    tags=["final-verdict", "gemini-3", "supreme-court", "openrouter"]
+)
 async def arbitrate_level(state: AnalysisState) -> AnalysisState:
     """
-    Agent 5: Technical Judge )
+    Agent 5: Technical Judge
     
     Responsibilities:
     1. Reconcile Bayesian Math, Grader verdict, and Reviewer forensics
@@ -62,7 +65,7 @@ async def arbitrate_level(state: AnalysisState) -> AnalysisState:
     )
     
     # ====================================================================
-    # STEP 2: BUILD JUDICIAL RUBRIC WITH EXACT OPIK TEMPLATE VARIABLES
+    # STEP 2: BUILD JUDICIAL RUBRIC
     # ====================================================================
     variables = {
         "job_id": job_id,
@@ -70,8 +73,8 @@ async def arbitrate_level(state: AnalysisState) -> AnalysisState:
         "learning_hours": learning_hours,
         "ncrf_credits": ncrf_credits,
         "bayesian_level": bayesian_level,
-        "bayesian_confidence": f"{bayesian_confidence * 100:.1f}",  # Convert to percentage string
-        "bayesian_range": str(bayesian_range),  # Convert list to string for template
+        "bayesian_confidence": f"{bayesian_confidence * 100:.1f}", 
+        "bayesian_range": str(bayesian_range), 
         "llm_level": llm_level,
         "grader_reasoning": grader_reasoning,
         "witness_statement": witness_statement,
@@ -84,7 +87,7 @@ async def arbitrate_level(state: AnalysisState) -> AnalysisState:
         # ====================================================================
         formatted_prompt = prompt_manager.format_prompt("judge-agent-rubric", variables)
         
-        logger.info(f"[Judge] Prompt formatted, invoking Gemini 3 Flash")
+        logger.info(f"[Judge] Prompt formatted, invoking Gemini 3 Flash via OpenRouter")
         push_live_log(
             job_id,
             "judge",
@@ -93,15 +96,19 @@ async def arbitrate_level(state: AnalysisState) -> AnalysisState:
         )
         
         # ====================================================================
-        # STEP 4: EXECUTE ARBITRATION VIA GEMINI 3 FLASH (MEDIUM THINKING)
+        # STEP 4: EXECUTE ARBITRATION (UPDATED FOR OPENROUTER)
         # ====================================================================
-        raw_response = await prompt_manager.call_gemini(
+        raw_response = await prompt_manager.call_llm(
             prompt_text=formatted_prompt,
-            thinking_level="medium"  # Deep deliberation for complex cases
+            model=settings.JUDGE_MODEL, # e.g. google/gemini-3-flash-preview
+            enable_reasoning=True,      # Triggers "thinking" tokens via extra_body
+            json_mode=True,             # Enforce JSON output
+            temperature=0.1
         )
         
-        # Parse verdict
-        verdict = json.loads(raw_response)
+        # Parse verdict (Clean potential markdown wrappers)
+        clean_json = raw_response.replace("```json", "").replace("```", "").strip()
+        verdict = json.loads(clean_json)
         
         # Validate required fields
         required_fields = [
@@ -181,7 +188,7 @@ async def arbitrate_level(state: AnalysisState) -> AnalysisState:
         return state
         
     except json.JSONDecodeError as e:
-        error_msg = f"Judge failed to parse Gemini response: {str(e)}"
+        error_msg = f"Judge failed to parse LLM response: {str(e)}"
         logger.error(f"[Judge] {error_msg}")
         push_live_log(job_id, "judge", "Verdict parsing failed. Defaulting to Grader.", "error")
         
@@ -203,17 +210,12 @@ async def arbitrate_level(state: AnalysisState) -> AnalysisState:
         
         state["errors"].append(error_msg)
         
-        # ✅ FIX: Lower confidence on failure
+        # Lower confidence on failure
         state["sfia_result"].update({
             "judge_summary": "Mistrial - Internal error",
             "judge_justification": f"Error: {str(e)}. Grader verdict stands.",
             "judge_intervened": False,
-            "judge_confidence": 0.5  # ✅ Lower confidence on error
+            "judge_confidence": 0.5 
         })
         
         return state
-
-# def _get_level_name(level: int) -> str:
-#     """Helper to get SFIA level name"""
-#     mapping = {1: "Follow", 2: "Assist", 3: "Apply", 4: "Enable", 5: "Ensure"}
-#     return mapping.get(int(level or 0), "Unknown")
