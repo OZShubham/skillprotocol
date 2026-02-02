@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Clock, AlertCircle, XCircle, Shield, Terminal, CheckCircle2, BookOpen, Loader2, ChevronDown, ChevronUp, Eye } from 'lucide-react'
-import { api } from '../services/api' 
+
 import { useNavigate } from 'react-router-dom'
+import { api, BASE_URL } from '../services/api'
+
 
 const AGENT_STEPS = [
   { key: 'validator', name: 'Validator', desc: 'Checking repository...', icon: Shield },
@@ -61,7 +63,8 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
   useEffect(() => {
     if (!jobId || status?.status === 'complete' || streamClosed) return
 
-    const eventSource = new EventSource(`http://localhost:8000/api/stream/${jobId}`)
+    // const eventSource = new EventSource(`http://localhost:8000/api/stream/${jobId}`)
+    const eventSource = new EventSource(`${BASE_URL}/stream/${jobId}`)
     let reconnectAttempts = 0
     const maxReconnects = 3
 

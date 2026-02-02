@@ -1,6 +1,13 @@
-import { motion } from 'framer-motion'
-import { BookOpen, Target, TrendingUp, Zap, CheckCircle2, AlertCircle } from 'lucide-react'
 import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { 
+  BookOpen, Target, TrendingUp, AlertCircle, 
+  Check, Copy, Terminal 
+} from 'lucide-react'
 
 export default function MentorReport({ plan }) {
   if (!plan?.markdown_report) {
@@ -12,21 +19,19 @@ export default function MentorReport({ plan }) {
     )
   }
 
-  // --- FIX START: Safely Extract Markdown ---
-  // If the backend sends a JSON string inside the field, we parse it here.
-  let reportContent = plan.markdown_report;
-  
+  // --- SAFE EXTRACTION LOGIC ---
+  // This handles cases where the LLM might double-encode the JSON
+  // or return the report inside a nested 'mentorship_report' key.
+  let reportContent = plan.markdown_report
   try {
-    const trimmed = reportContent.trim();
+    const trimmed = reportContent.trim()
     if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-      const parsed = JSON.parse(trimmed);
-      // Try known keys or fallback to the raw string if structure is unexpected
-      reportContent = parsed.mentorship_report || parsed.markdown || parsed.report || reportContent;
+      const parsed = JSON.parse(trimmed)
+      reportContent = parsed.mentorship_report || parsed.markdown || parsed.report || reportContent
     }
   } catch (e) {
-    // Not JSON, ignore and use as raw string
+    // If parsing fails, it's likely just a raw markdown string, which is what we want.
   }
-  // --- FIX END ---
 
   const currentLevel = plan.current_level || 1
   const targetLevel = plan.target_level || currentLevel + 1
@@ -57,7 +62,7 @@ export default function MentorReport({ plan }) {
           <LevelProgressIndicator current={currentLevel} target={targetLevel} />
         </div>
 
-        {/* Stats */}
+        {/* Stats Summary - Only shows if there are specific items to flag */}
         {(plan.missing_elements_count > 0 || plan.issues_identified > 0) && (
           <div className="flex gap-4 mt-6 pt-6 border-t border-border flex-wrap">
             {plan.missing_elements_count > 0 && (
@@ -82,392 +87,152 @@ export default function MentorReport({ plan }) {
 
       {/* Main Markdown Content */}
       <div className="bg-panel border border-border rounded-xl p-8">
-        <MarkdownRenderer content={reportContent} />
+        <div className="prose-custom">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={MarkdownComponents}
+          >
+            {reportContent}
+          </ReactMarkdown>
+        </div>
       </div>
     </motion.div>
   )
 }
 
-
 // ============================================================================
-// Markdown Renderer
-// ============================================================================
-
-function MarkdownRenderer({ content }) {
-  // Ensure content is a string before parsing
-  const safeContent = typeof content === 'string' ? content : JSON.stringify(content);
-  const sections = parseMarkdown(safeContent);
-
-  return (
-    <div className="prose-custom space-y-8">
-      {sections.map((section, i) => (
-        <MarkdownSection key={i} {...section} />
-      ))}
-    </div>
-  )
-}
-
-
-// ============================================================================
-// Markdown Parser
+// Custom Markdown Components (Styled for Tailwind & Void Theme)
 // ============================================================================
 
-function parseMarkdown(content) {
-  const sections = []
-  const lines = content.split('\n')
+const MarkdownComponents = {
+  // H1: Large, underlined, extra spacing
+  h1: ({ node, ...props }) => (
+    <h1 className="text-4xl font-bold text-text-main pb-4 border-b-2 border-border mb-6 mt-8 first:mt-0" {...props} />
+  ),
   
-  let currentSection = null
-  let currentParagraph = []
-  let currentList = []
-  let inCodeBlock = false
-  let codeBlockContent = []
-  let codeLanguage = ''
-  
-  const flushParagraph = () => {
-    if (currentParagraph.length > 0 && currentSection) {
-      currentSection.content.push({
-        type: 'paragraph',
-        text: currentParagraph.join(' ')
-      })
-      currentParagraph = []
-    }
-  }
-  
-  const flushList = () => {
-    if (currentList.length > 0 && currentSection) {
-      currentSection.content.push({
-        type: 'list',
-        items: currentList
-      })
-      currentList = []
-    }
-  }
-  
-  // Default section for content before any header
-  if (!content.trim().startsWith('#')) {
-      currentSection = {
-          level: 1,
-          title: 'Introduction',
-          content: []
-      }
-  }
+  // H2: Target Icon style
+  h2: ({ node, ...props }) => (
+    <h2 className="text-2xl font-bold text-text-main mt-10 mb-4 flex items-center gap-3">
+      <Target className="w-6 h-6 text-primary shrink-0" />
+      <span>{props.children}</span>
+    </h2>
+  ),
 
-  for (const line of lines) {
-    // Code blocks
-    if (line.trim().startsWith('```')) {
-      if (inCodeBlock) {
-        if (currentSection) {
-          currentSection.content.push({
-            type: 'code',
-            language: codeLanguage,
-            content: codeBlockContent.join('\n')
-          })
-        }
-        codeBlockContent = []
-        codeLanguage = ''
-        inCodeBlock = false
-      } else {
-        flushParagraph()
-        flushList()
-        // Handle ```javascript etc.
-        codeLanguage = line.trim().substring(3).trim()
-        inCodeBlock = true
-      }
-      continue
-    }
-    
-    if (inCodeBlock) {
-      codeBlockContent.push(line)
-      continue
-    }
-    
-    // H1 Headers
-    if (line.startsWith('# ')) {
-      flushParagraph()
-      flushList()
-      if (currentSection) sections.push(currentSection)
-      
-      currentSection = {
-        level: 1,
-        title: line.replace('# ', '').trim(),
-        content: []
-      }
-    }
-    // H2 Headers
-    else if (line.startsWith('## ')) {
-      flushParagraph()
-      flushList()
-      // If we hit an H2 but have no currentSection, create a dummy one
-      if (!currentSection) {
-          currentSection = { level: 1, title: 'Report', content: [] }
-      }
-      
-      currentSection.content.push({
-        type: 'heading',
-        level: 2,
-        text: line.replace('## ', '').trim()
-      })
-    }
-    // H3 Headers
-    else if (line.startsWith('### ')) {
-      flushParagraph()
-      flushList()
-      if (!currentSection) {
-          currentSection = { level: 1, title: 'Report', content: [] }
-      }
-      
-      currentSection.content.push({
-        type: 'heading',
-        level: 3,
-        text: line.replace('### ', '').trim()
-      })
-    }
-    // Lists
-    else if (line.match(/^[-*]\s/) || line.match(/^\d+\.\s/)) {
-      flushParagraph()
-      const item = line.replace(/^[-*]\s/, '').replace(/^\d+\.\s/, '').trim()
-      currentList.push(item)
-    }
-    // Horizontal rule
-    else if (line.trim() === '---' || line.trim() === '***') {
-      flushParagraph()
-      flushList()
-      if (currentSection) {
-        currentSection.content.push({
-          type: 'hr'
-        })
-      }
-    }
-    // Regular text
-    else if (line.trim()) {
-      flushList()
-      currentParagraph.push(line.trim())
-    }
-    // Empty line
-    else {
-      flushParagraph()
-      flushList()
-    }
-  }
-  
-  // Flush final content
-  flushParagraph()
-  flushList()
-  if (currentSection) sections.push(currentSection)
-  
-  return sections
-}
+  // H3: TrendingUp Icon style
+  h3: ({ node, ...props }) => (
+    <h3 className="text-xl font-bold text-primary mt-8 mb-3 flex items-center gap-2">
+      <TrendingUp className="w-5 h-5 text-primary shrink-0" />
+      <span>{props.children}</span>
+    </h3>
+  ),
 
+  // Paragraphs with relaxed line-height for readability
+  p: ({ node, ...props }) => (
+    <p className="text-text-muted leading-relaxed text-base mb-4 last:mb-0" {...props} />
+  ),
 
-// ============================================================================
-// Section Component
-// ============================================================================
+  // Unordered Lists
+  ul: ({ node, ...props }) => (
+    <ul className="space-y-2 my-4 pl-1" {...props} />
+  ),
 
-function MarkdownSection({ level, title, content }) {
-  return (
-    <div className="space-y-6">
-      {/* H1 Title */}
-      {level === 1 && (
-        <h1 className="text-4xl font-bold text-text-main pb-4 border-b-2 border-border">
-          {title}
-        </h1>
-      )}
-      
-      {/* Content Blocks */}
-      <div className="space-y-4">
-        {content.map((block, i) => (
-          <ContentBlock key={i} {...block} />
-        ))}
-      </div>
-    </div>
-  )
-}
+  // Ordered Lists
+  ol: ({ node, ...props }) => (
+    <ol className="space-y-2 my-4 list-decimal list-inside text-text-muted" {...props} />
+  ),
 
-
-// ============================================================================
-// Content Blocks
-// ============================================================================
-
-function ContentBlock({ type, text, items, level, content, language }) {
-  switch (type) {
-    case 'heading':
-      return <Heading level={level} text={text} />
-    
-    case 'paragraph':
-      return <Paragraph text={text} />
-    
-    case 'list':
-      return <List items={items} />
-    
-    case 'code':
-      return <CodeBlock content={content} language={language} />
-    
-    case 'hr':
-      return <hr className="border-border my-8" />
-    
-    default:
-      return null
-  }
-}
-
-
-function Heading({ level, text }) {
-  // Extract emoji from text if present
-  const emojiMatch = text.match(/^(\p{Emoji})\s+(.+)$/u)
-  const emoji = emojiMatch ? emojiMatch[1] : null
-  const cleanText = emojiMatch ? emojiMatch[2] : text
-  
-  const icons = {
-    2: <Target className="w-5 h-5 text-primary" />,
-    3: <TrendingUp className="w-4 h-4 text-primary" />
-  }
-  
-  if (level === 2) {
-    return (
-      <h2 className="text-2xl font-bold text-text-main mt-10 mb-4 flex items-center gap-3">
-        {emoji && <span className="text-3xl">{emoji}</span>}
-        {!emoji && icons[2]}
-        {cleanText}
-      </h2>
-    )
-  }
-  
-  if (level === 3) {
-    return (
-      <h3 className="text-xl font-bold text-primary mt-6 mb-3 flex items-center gap-2">
-        {emoji && <span className="text-2xl">{emoji}</span>}
-        {!emoji && icons[3]}
-        {cleanText}
-      </h3>
-    )
-  }
-  
-  return null
-}
-
-
-function Paragraph({ text }) {
-  return (
-    <p className="text-text-muted leading-relaxed text-base">
-      <FormattedText text={text} />
-    </p>
-  )
-}
-
-
-function List({ items }) {
-  return (
-    <ul className="space-y-2 my-4">
-      {items.map((item, i) => (
-        <li key={i} className="flex items-start gap-3 text-text-muted">
+  // List Items with custom bullet logic
+  li: ({ node, ...props }) => (
+    <li className="flex items-start gap-3 text-text-muted">
+      {/* If it's a UL, use a custom arrow. If OL, use default numbers. */}
+      {node.position?.start.column === 1 && !props.checked && props.ordered !== true ? (
+        <>
           <span className="text-primary mt-1.5 shrink-0">→</span>
-          <span className="flex-1">
-            <FormattedText text={item} />
-          </span>
-        </li>
-      ))}
-    </ul>
-  )
+          <span className="flex-1">{props.children}</span>
+        </>
+      ) : (
+        <span className="flex-1">{props.children}</span>
+      )}
+    </li>
+  ),
+
+  // Blockquotes for hints/notes
+  blockquote: ({ node, ...props }) => (
+    <blockquote className="border-l-4 border-primary/50 bg-surface/50 p-4 rounded-r-lg my-6 italic text-text-dim" {...props} />
+  ),
+
+  // Links (styled to be visible)
+  a: ({ node, ...props }) => (
+    <a 
+      className="text-primary underline decoration-primary/30 underline-offset-4 hover:decoration-primary transition-all" 
+      target="_blank" 
+      rel="noopener noreferrer" 
+      {...props} 
+    />
+  ),
+
+  // Code Blocks & Inline Code
+  code({ node, inline, className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className || '')
+    const language = match ? match[1] : ''
+    
+    // Inline Code `like this`
+    if (inline || !match) {
+      return (
+        <code className="bg-surface px-1.5 py-0.5 rounded text-primary text-sm font-mono border border-border" {...props}>
+          {children}
+        </code>
+      )
+    }
+
+    // Block Code (using Syntax Highlighter)
+    return (
+      <div className="relative group my-6 rounded-lg overflow-hidden border border-border bg-[#282c34]">
+        {/* Language Badge */}
+        <div className="absolute top-0 right-0 px-3 py-1 text-xs font-mono text-gray-400 bg-white/5 rounded-bl-lg border-b border-l border-white/5">
+          {language}
+        </div>
+        
+        {/* Syntax Highlighter */}
+        <SyntaxHighlighter
+          style={oneDark}
+          language={language}
+          PreTag="div"
+          customStyle={{ margin: 0, padding: '1.5rem', background: 'transparent' }}
+          {...props}
+        >
+          {String(children).replace(/\n$/, '')}
+        </SyntaxHighlighter>
+        
+        <CopyButton content={String(children)} />
+      </div>
+    )
+  }
 }
 
+// ============================================================================
+// Helper Components
+// ============================================================================
 
-function CodeBlock({ content, language }) {
+function CopyButton({ content }) {
   const [copied, setCopied] = useState(false)
-  
+
   const handleCopy = () => {
     navigator.clipboard.writeText(content)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
-  
+
   return (
-    <div className="relative group">
-      <pre className="bg-surface p-4 rounded-lg text-sm font-mono overflow-x-auto border border-border">
-        <code className="text-text-main">{content}</code>
-      </pre>
-      <button
-        onClick={handleCopy}
-        className="absolute top-2 right-2 px-3 py-1 bg-panel border border-border rounded text-xs text-text-muted hover:text-text-main hover:border-primary transition-colors opacity-0 group-hover:opacity-100"
-      >
-        {copied ? 'Copied!' : 'Copy'}
-      </button>
-      {language && (
-        <div className="absolute top-2 left-2 px-2 py-1 bg-primary/10 rounded text-xs text-primary font-semibold">
-          {language}
-        </div>
-      )}
-    </div>
+    <button
+      onClick={handleCopy}
+      className="absolute top-3 right-12 p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100"
+      title="Copy Code"
+    >
+      {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+    </button>
   )
 }
-
-
-// ============================================================================
-// Inline Text Formatting
-// ============================================================================
-
-function FormattedText({ text }) {
-  if (!text) return null;
-  
-  const parts = []
-  let current = ''
-  let i = 0
-  
-  while (i < text.length) {
-    // Bold **text**
-    if (text[i] === '*' && text[i+1] === '*') {
-      if (current) parts.push(current)
-      current = ''
-      
-      i += 2
-      let bold = ''
-      while (i < text.length && !(text[i] === '*' && text[i+1] === '*')) {
-        bold += text[i]
-        i++
-      }
-      parts.push(
-        <strong key={parts.length} className="text-text-main font-bold">
-          {bold}
-        </strong>
-      )
-      i += 2
-    }
-    // Inline code `text`
-    else if (text[i] === '`') {
-      if (current) parts.push(current)
-      current = ''
-      
-      i++
-      let code = ''
-      while (i < text.length && text[i] !== '`') {
-        code += text[i]
-        i++
-      }
-      parts.push(
-        <code 
-          key={parts.length} 
-          className="bg-surface px-2 py-0.5 rounded text-primary text-sm font-mono"
-        >
-          {code}
-        </code>
-      )
-      i++
-    }
-    // Regular text
-    else {
-      current += text[i]
-      i++
-    }
-  }
-  
-  if (current) parts.push(current)
-  
-  return parts.length > 1 ? parts : text
-}
-
-
-// ============================================================================
-// Level Progress Indicator
-// ============================================================================
 
 function LevelProgressIndicator({ current, target }) {
   const getLevelColor = (level) => {
@@ -480,7 +245,7 @@ function LevelProgressIndicator({ current, target }) {
     }
     return colors[level] || colors[1]
   }
-  
+
   return (
     <div className="flex items-center gap-3">
       <div className={`px-4 py-2 rounded-lg border-2 ${getLevelColor(current)} font-bold text-sm`}>

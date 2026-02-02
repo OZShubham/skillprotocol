@@ -1,10 +1,4 @@
 # backend/app/scripts/setup_online_evals.py
-"""
-Setup Script - STRICTLY COMPLIANT WITH OPIK 1.9.96 REST API
-Run this script once to configure your Opik project with:
-1. Feedback Definitions (e.g., user_satisfaction)
-2. Online Evaluation Rules (LLM-as-a-Judge)
-"""
 import logging
 import opik
 from app.core.config import settings
@@ -13,6 +7,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- PROMPTS ---
+# Note: We removed the instruction to return a "reason" field since the API 
+# currently only supports storing numeric scores for automated rules.
 
 HALLUCINATION_PROMPT = """
 You are an expert judge evaluating the faithfulness of an AI-generated answer.
@@ -21,18 +17,16 @@ Analyze the provided INPUT and OUTPUT.
 Check if the OUTPUT contains information that is not present in the INPUT or contradicts it.
 If the OUTPUT references files, metrics, or data that were not provided in the INPUT context, it is a hallucination.
 
-Return a JSON object with:
+Return a JSON object with a single key "score":
 - "score": A float between 0.0 (Hallucinated/Unfaithful) and 1.0 (Faithful/Correct)
-- "reason": A brief explanation of your decision.
 """
 
 RELEVANCE_PROMPT = """
 Evaluate the relevance of the AI-generated OUTPUT to the user's INPUT.
 Determine if the output directly addresses the user's request or analyzes the provided repository URL correctly.
 
-Return a JSON object with:
+Return a JSON object with a single key "score":
 - "score": A float between 0.0 (Irrelevant) and 1.0 (Highly Relevant)
-- "reason": A brief explanation of your decision.
 """
 
 def configure_platform():
@@ -43,49 +37,37 @@ def configure_platform():
             project_name=settings.OPIK_PROJECT_NAME,
             api_key=settings.OPIK_API_KEY,
             workspace=settings.OPIK_WORKSPACE,
-            host="https://www.comet.com/opik/api" 
+            host="https://www.comet.com/opik/api"
         )
     except Exception as e:
         print(f"❌ Failed to initialize Opik client: {e}")
         return
 
-    # 2. Get or Create Project ID
-    # We need the specific Project UUID to attach rules to it.
+    # 2. Get Project ID
     project_id = None
     try:
-        print(f"🔍 Finding project: {settings.OPIK_PROJECT_NAME}")
         projects_response = client.rest_client.projects.find_projects(
             name=settings.OPIK_PROJECT_NAME
         )
-        
         if projects_response.content:
             project_id = projects_response.content[0].id
-            print(f"✅ Found Existing Project ID: {project_id}")
+            print(f"✅ Found Project ID: {project_id}")
         else:
-            print(f"✨ Creating new project: {settings.OPIK_PROJECT_NAME}")
-            client.rest_client.projects.create_project(
-                name=settings.OPIK_PROJECT_NAME,
-                description="SkillProtocol Skill Verification and Monitoring"
-            )
-            # Fetch again to get the ID
-            projects_response = client.rest_client.projects.find_projects(
-                name=settings.OPIK_PROJECT_NAME
-            )
+            print(f"✨ Creating new project...")
+            client.rest_client.projects.create_project(name=settings.OPIK_PROJECT_NAME)
+            projects_response = client.rest_client.projects.find_projects(name=settings.OPIK_PROJECT_NAME)
             project_id = projects_response.content[0].id
-            print(f"✅ Created Project ID: {project_id}")
             
     except Exception as e:
         print(f"❌ Critical Error: Could not manage Project ID. {e}")
         return
 
-    # 3. Create Feedback Definitions
-    # This defines the "User Satisfaction" score (Manual Feedback)
+    # 3. Create Feedback Definitions (Workspace Level)
     try:
+        # FIX 1: Removed 'project_id' argument. This is now workspace-wide.
         defs = client.rest_client.feedback_definitions.find_feedback_definitions(
-            name="user_satisfaction",
-            project_id=project_id
+            name="user_satisfaction"
         )
-        
         if not defs.content:
             client.rest_client.feedback_definitions.create_feedback_definition(
                 request={
@@ -105,14 +87,14 @@ def configure_platform():
         {
             "name": "Grader_Hallucination_Watch",
             "prompt": HALLUCINATION_PROMPT,
-            "sampling_rate": 0.1, # Analyze 10% of traces
-            "model": "openai/gpt-4o" # High intelligence model for judging
+            "sampling_rate": 1.0, # Analyze 100% of traces for the demo
+            "model": "gpt-4o-mini" # CHANGED: Using the free Opik model
         },
         {
             "name": "Response_Relevance_Check",
             "prompt": RELEVANCE_PROMPT,
-            "sampling_rate": 0.1,
-            "model": "openai/gpt-4o"
+            "sampling_rate": 1.0, 
+            "model": "gpt-4o-mini" # CHANGED: Using the free Opik model
         }
     ]
 
@@ -125,8 +107,9 @@ def configure_platform():
                 name=rule["name"]
             )
             
+            # If exists, skip (You must delete in UI to update)
             if existing.content:
-                print(f"ℹ️  Rule '{rule['name']}' already exists. Skipping.")
+                print(f"ℹ️  Rule '{rule['name']}' already exists. Please delete it in UI to update model.")
                 continue
 
             # Construct the Rule Payload
@@ -143,31 +126,20 @@ def configure_platform():
                         "temperature": 0.0
                     },
                     "messages": [
-                        {
-                            "role": "system", 
-                            "content": "You are a helpful AI judge. Respond with valid JSON."
-                        },
-                        {
-                            "role": "user", 
-                            "content": rule["prompt"]
-                        }
+                        {"role": "system", "content": "You are a helpful AI judge. Respond with valid JSON."},
+                        {"role": "user", "content": rule["prompt"]}
                     ],
-                    # Map Trace Input/Output to Prompt Variables
                     "variables": {
                         "input": "input", 
                         "output": "output"
                     },
-                    # Define the metric that Opik will create
+                    # FIX 2: Removed "reason" field. 
+                    # Opik only allows DOUBLE, INTEGER, or BOOLEAN here.
                     "schema": [
                         {
                             "name": "score", 
                             "type": "DOUBLE", 
                             "description": "Computed metric score between 0.0 and 1.0"
-                        },
-                        {
-                            "name": "reason",
-                            "type": "STRING",
-                            "description": "Reasoning for the score"
                         }
                     ]
                 }
@@ -176,7 +148,7 @@ def configure_platform():
             client.rest_client.automation_rule_evaluators.create_automation_rule_evaluator(
                 request=request_payload
             )
-            print(f"✅ Created Rule: {rule['name']}")
+            print(f"✅ Created Rule: {rule['name']} using {rule['model']}")
 
         except Exception as e:
             print(f"⚠️  Failed to create rule '{rule['name']}': {e}")
