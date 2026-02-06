@@ -83,9 +83,9 @@ async def _perform_semantic_analysis(
     
     # Prepare code samples
     code_samples_text = ""
-    for idx, sample in enumerate(sample_files[:5], 1):
+    for idx, sample in enumerate(sample_files[:10], 1):
         code_samples_text += f"\n### Sample {idx}: {sample.get('path', 'unknown')}\n"
-        code_samples_text += f"```\n{sample.get('content', '')[:1000]}\n```\n"
+        code_samples_text += f"```\n{sample.get('content', '')[:3000]}\n```\n"
     
     # Build semantic analysis prompt
     semantic_prompt = f"""You are a Senior Software Architect performing semantic code analysis.

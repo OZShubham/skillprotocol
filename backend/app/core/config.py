@@ -155,7 +155,7 @@ class Settings(BaseSettings):
     MAX_REPO_SIZE_KB: int = 500000
     CLONE_TIMEOUT_SECONDS: int = 120
     
-    CORS_ORIGINS_STR: str = "http://localhost:5173,http://localhost:3000"
+    CORS_ORIGINS_STR: str = "https://skillprotocol-9l4upf7ei-ozshubhams-projects.vercel.app, https://skillprotocol-git-master-ozshubhams-projects.vercel.app, http://localhost:5173,http://localhost:3000"
     
     @property
     def CORS_ORIGINS(self) -> list[str]:
