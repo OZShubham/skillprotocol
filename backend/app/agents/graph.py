@@ -1,6 +1,5 @@
-
-
-from typing import Literal
+import logging
+from typing import Literal, Dict, Any
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -11,18 +10,61 @@ from opik.integrations.langchain import OpikTracer, track_langgraph
 from app.core.config import settings
 from app.core.state import AnalysisState, create_initial_state
 
-# Import agents - UPDATED imports
+# Import agents
 from app.agents.validator import validate_repository
-# Use refactored scanner (has reviewer logic built-in)
-from app.agents.scanner import scan_codebase  # ← UPDATED
-# Use refactored grader (simplified tools)
-from app.agents.grader import grade_sfia_level  # ← UPDATED
-
-# These agents remain unchanged
+from app.agents.scanner import scan_codebase
+from app.agents.grader import grade_sfia_level
 from app.agents.judge import arbitrate_level
 from app.agents.auditor import reality_check
 from app.agents.mentor import provide_mentorship
 from app.agents.reporter import store_and_report
+
+# Setup Logger
+logger = logging.getLogger(__name__)
+
+# ============================================================================
+# NEW NODE: BAYESIAN MATH CALCULATOR
+# ============================================================================
+
+async def calculate_math_node(state: AnalysisState) -> Dict[str, Any]:
+    """
+    Runs the Bayesian Math Logic using the SLOC from the Scanner.
+    This ensures 'validation_result' is populated before the Grader runs.
+    """
+    print("🧮 [Math Node] Calculating Bayesian Priors...")
+    
+    scan_data = state.get("scan_metrics", {})
+    ncrf_data = scan_data.get("ncrf", {})
+    total_sloc = ncrf_data.get("total_sloc", 0)
+    
+    # 1. Define Priors (Logic: More code generally requires higher skill to manage)
+    # < 2k lines = Junior (L1-2)
+    # 2k - 10k = Mid (L3)
+    # > 10k = Senior (L4-5)
+    
+    estimated_level = 1
+    confidence = 0.5
+    
+    if total_sloc > 10000:
+        estimated_level = 4
+        confidence = 0.85
+    elif total_sloc > 3000:
+        estimated_level = 3
+        confidence = 0.75
+    elif total_sloc > 1000:
+        estimated_level = 2
+        confidence = 0.60
+        
+    result = {
+        "validation_result": {
+            "bayesian_best_estimate": estimated_level,
+            "confidence": confidence,
+            "details": f"Based on {total_sloc} SLOC"
+        }
+    }
+    
+    print(f"🧮 [Math Node] Result: Level {estimated_level} ({confidence*100}%)")
+    return result
 
 
 # ============================================================================
@@ -30,7 +72,7 @@ from app.agents.reporter import store_and_report
 # ============================================================================
 
 def should_proceed_to_scanner(state: AnalysisState) -> Literal["scanner", "reporter"]:
-    """Decision after validation (UNCHANGED)"""
+    """Decision after validation"""
     if state.get("should_skip", False):
         print(f"⏭️  [Router] Skipping analysis: {state.get('skip_reason')}")
         return "reporter"
@@ -44,10 +86,10 @@ def should_proceed_to_scanner(state: AnalysisState) -> Literal["scanner", "repor
     return "scanner"
 
 
-def should_proceed_to_grader(state: AnalysisState) -> Literal["grader", "reporter"]:
+def should_proceed_from_scanner(state: AnalysisState) -> Literal["math_model", "reporter"]:
     """
-    Decision after scanning (UPDATED - was should_proceed_to_reviewer)
-    Scanner now does EVERYTHING (including semantic analysis)
+    Decision after scanning.
+    Routes to 'math_model' to ensure stats are calculated before grading.
     """
     scan_metrics = state.get("scan_metrics")
     if not scan_metrics:
@@ -61,12 +103,12 @@ def should_proceed_to_grader(state: AnalysisState) -> Literal["grader", "reporte
         print(f"⏭️  [Router] Not enough code ({total_sloc} SLOC), skipping to reporter")
         return "reporter"
     
-    print(f"✅ [Router] Scanner complete ({total_sloc} SLOC), proceeding to grader")
-    return "grader"
+    print(f"✅ [Router] Scanner complete ({total_sloc} SLOC), proceeding to Math Model")
+    return "math_model"
 
 
 def should_retry_grader(state: AnalysisState) -> Literal["grader", "judge"]:
-    """Decision after grading (UNCHANGED)"""
+    """Decision after grading"""
     sfia_result = state.get("sfia_result")
     if not sfia_result:
         return "judge"
@@ -84,10 +126,7 @@ def should_retry_grader(state: AnalysisState) -> Literal["grader", "judge"]:
 
 
 def should_provide_mentorship(state: AnalysisState) -> Literal["mentor", "reporter"]:
-    """
-    Decision after auditing (UNCHANGED)
-    """
-    
+    """Decision after auditing"""
     # 1. Check if we have code analysis
     ncrf = state.get("scan_metrics", {}).get("ncrf", {})
     base_credits = ncrf.get("ncrf_base_credits", 0)
@@ -119,15 +158,13 @@ def should_provide_mentorship(state: AnalysisState) -> Literal["mentor", "report
 # ============================================================================
 
 def create_analysis_graph():
-    
-    
     workflow = StateGraph(AnalysisState)
     
-    
+    # Add Nodes
     workflow.add_node("validator", validate_repository)
-    workflow.add_node("scanner", scan_codebase)  
-    
-    workflow.add_node("grader", grade_sfia_level)  
+    workflow.add_node("scanner", scan_codebase)
+    workflow.add_node("math_model", calculate_math_node) # <--- NEW NODE
+    workflow.add_node("grader", grade_sfia_level)
     workflow.add_node("judge", arbitrate_level)
     workflow.add_node("auditor", reality_check)
     workflow.add_node("mentor", provide_mentorship)
@@ -143,15 +180,15 @@ def create_analysis_graph():
         {"scanner": "scanner", "reporter": "reporter"}
     )
     
-    
+    # Scanner → Math Model (UPDATED)
     workflow.add_conditional_edges(
         "scanner",
-        should_proceed_to_grader,
-        {"grader": "grader", "reporter": "reporter"}
+        should_proceed_from_scanner,
+        {"math_model": "math_model", "reporter": "reporter"}
     )
     
-    
-    
+    # Math Model → Grader (NEW EDGE)
+    workflow.add_edge("math_model", "grader")
     
     # Grader → (Retry) OR (Judge)
     workflow.add_conditional_edges(
@@ -196,14 +233,12 @@ async def run_analysis(
     user_github_token: str = None
 ) -> AnalysisState:
    
-    
-    
     print(f"\n{'='*70}")
     print(f"🚀 Starting SkillProtocol Analysis (REFACTORED)")
     print(f"   Job ID: {job_id}")
     print(f"   Repo: {repo_url}")
     print(f"   User: {user_id}")
-    print(f"   Flow: 6 agents (was 7)")
+    print(f"   Flow: 7 steps (Validator->Scanner->Math->Grader->Judge->Mentor->Reporter)")
     print(f"{'='*70}\n")
     
     # Create Initial State
@@ -255,14 +290,13 @@ async def run_analysis(
     print(f"   Final Credits: {final_state.get('final_credits', 0)}")
     print(f"   Mentorship: {'Provided' if final_state.get('mentorship_plan') else 'Not applicable'}")
     print(f"   Errors: {len(final_state.get('errors', []))}")
-    print(f"   Performance: ~40% faster than original")
     print(f"{'='*70}\n")
     
     return final_state
 
 
 async def get_analysis_status(job_id: str) -> dict:
-    """Gets a snapshot of the ongoing graph state (UNCHANGED)"""
+    """Gets a snapshot of the ongoing graph state"""
     
     config = {"configurable": {"thread_id": job_id}}
     

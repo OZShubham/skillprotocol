@@ -64,7 +64,7 @@ LANGUAGE_CONFIGS = {
 # Fallback extensions (no Tree-sitter, basic analysis)
 FALLBACK_EXTENSIONS = {
     '.sh', '.bash', '.css', '.html', '.sql', 
-    '.yaml', '.yml', '.json', '.toml', '.md'
+    '.yaml', '.yml', '.json', '.toml'
 }
 
 CODE_EXTENSIONS = set(LANGUAGE_CONFIGS.keys()) | FALLBACK_EXTENSIONS
@@ -356,7 +356,20 @@ class ScoringEngine:
                     continue
         
         # Calculate final metrics
-        estimated_hours = min(weighted_learning_hours, MAX_ESTIMATED_HOURS)
+        # --- FIX: SOFT CAP / DIMINISHING RETURNS ---
+        # Instead of a hard stop at 200, we use logarithmic growth after 200.
+        # This rewards huge effort (L5) without breaking the economy.
+        
+        if weighted_learning_hours <= MAX_ESTIMATED_HOURS:
+            estimated_hours = weighted_learning_hours
+        else:
+            # Formula: Base + (Multiplier * ln(Excess))
+            # Example: Input 1000h -> 200 + (80 * ln(800)) ≈ 200 + 534 = 734 hours
+            excess = weighted_learning_hours - MAX_ESTIMATED_HOURS
+            # math.log is natural log. +1 prevents log(0) errors.
+            log_growth = 80 * math.log(1 + excess)
+            estimated_hours = MAX_ESTIMATED_HOURS + log_growth
+
         base_credits = estimated_hours / NCRF_HOURS_PER_CREDIT
         
         # Enhanced Maintainability Index

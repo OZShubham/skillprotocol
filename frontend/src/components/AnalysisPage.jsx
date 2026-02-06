@@ -53,17 +53,19 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
       }
     }
 
-    const interval = setInterval(pollStatus, 2000)
+    const interval = setInterval(pollStatus, 5000)
     pollStatus()
 
     return () => clearInterval(interval)
   }, [jobId, onComplete])
 
-  // SSE for live logs - ENHANCED with proper closure
+ 
+  // SSE for live logs - ENHANCED with proper closure & stability fix
   useEffect(() => {
+    // 1. Only connect if we have a Job ID and it's not finished
     if (!jobId || status?.status === 'complete' || streamClosed) return
 
-    // const eventSource = new EventSource(`http://localhost:8000/api/stream/${jobId}`)
+    console.log("🔌 Connecting to EventStream...")
     const eventSource = new EventSource(`${BASE_URL}/stream/${jobId}`)
     let reconnectAttempts = 0
     const maxReconnects = 3
@@ -72,7 +74,7 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
       try {
         const newLog = JSON.parse(event.data)
         
-        // ✅ CRITICAL FIX: Close stream when complete event received
+        // Handle stream completion
         if (newLog.event === 'complete') {
           console.log('✅ Stream completion event received')
           eventSource.close()
@@ -80,17 +82,27 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
           return
         }
 
+        // Update logs state
         setLiveLogs((prev) => [newLog, ...prev].slice(0, 100))
-        
-        // Auto-expand active agent
-        if (newLog.agent && !expandedAgent) {
-          setExpandedAgent(newLog.agent)
-        }
 
-        // Auto-collapse previous agent when new one starts
-        if (newLog.agent && expandedAgent && newLog.agent !== expandedAgent) {
-          setExpandedAgent(newLog.agent)
+        if (newLog.agent && status?.current_step !== newLog.agent) {
+             setStatus(prev => ({ 
+                 ...prev, 
+                 current_step: newLog.agent,
+                 // Optional: Estimate progress bump to make it feel responsive
+                 progress: prev ? Math.min(prev.progress + 5, 95) : 0
+             }))
         }
+        
+        // Auto-expand logic (Safe to do here because functional update doesn't trigger effect re-run)
+        setExpandedAgent(prev => {
+            // Only auto-expand if we are switching to a new agent
+            if (newLog.agent && newLog.agent !== prev) {
+                return newLog.agent;
+            }
+            return prev;
+        });
+
       } catch (err) {
         console.error("SSE Parse Error:", err)
       }
@@ -105,7 +117,6 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
         return
       }
 
-      // Limit reconnection attempts
       reconnectAttempts++
       if (reconnectAttempts >= maxReconnects) {
         console.log('Max reconnection attempts reached')
@@ -117,7 +128,8 @@ export default function AnalysisPage({ jobId, onComplete, onError }) {
       console.log('Cleaning up SSE connection')
       eventSource.close()
     }
-  }, [jobId, status?.status, streamClosed, expandedAgent])
+    // ✅ FIX: Removed 'expandedAgent' from dependencies to stop re-renders loop
+  }, [jobId, status?.status, streamClosed])
 
   if (validationError) {
     return <ValidationErrorView 

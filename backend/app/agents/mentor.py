@@ -487,9 +487,9 @@ logger = logging.getLogger(__name__)
 
 
 @track_agent(
-    name="Mentor Agent (Real Analysis)",
+    name="Mentor Agent",
     agent_type="llm",
-    tags=["mentor", "code-review", "markdown-report", "openrouter"]
+    tags=["mentor", "code-review", "markdown-report"]
 )
 async def provide_mentorship(state: AnalysisState) -> AnalysisState:
     
@@ -862,14 +862,96 @@ def _format_code_samples(sample_files: List[Dict]) -> str:
 # MARKDOWN GENERATION - 
 # ============================================================================
 
+# async def _generate_mentorship_markdown(context: Dict) -> str:
+#     """
+#     Generate detailed, personalized markdown report using Gemini.
+
+
+#     """
+
+
+#     strengths_str = "\n".join(f"- {s}" for s in context['strengths'])
+    
+#     missing_str = "\n".join(
+#         f"- Missing: {m['item']} ({m.get('concept', 'General')}) - {m['why']}" 
+#         for m in context['missing_elements']
+#     )
+    
+#     issues_str = "\n".join(
+#         f"- {i['type']} ({i['severity']}) - {i['description']}" 
+#         for i in context['code_issues']
+#     )
+
+#     # [ADD] Prepare Variables
+#     prompt_variables = {
+#         "current_level": context['current_level'],
+#         "level_name": context['level_name'],
+#         "target_level": context['target_level'],
+#         "target_level_name": context['target_level_name'],
+#         "dominant_language": context['dominant_language'],
+#         "file_count": context['file_count'],
+#         "total_sloc": context['total_sloc'],
+#         "sophistication": context['sophistication'],
+#         "quality_level": context['quality_level'],
+#         "patterns_found": context['patterns_found'],
+#         "architecture_maturity": context['architecture_maturity'],
+        
+#         # Pass the pre-formatted strings
+#         "strengths": strengths_str,
+#         "missing_elements": missing_str,
+#         "code_issues": issues_str,
+#         "code_samples": context['code_samples']
+#     }
+
+#     try:
+#         prompt_text = prompt_manager.format_prompt("mentor-agent-v1", prompt_variables)
+#         # 2. Call LLM (Updated for OpenRouter)
+#         response_json_str = await prompt_manager.call_llm(
+#             prompt_text=prompt_text,
+#             model=settings.MENTOR_MODEL,
+#             enable_reasoning=True,
+#             json_mode=True,
+#             temperature=0.1
+#         )
+        
+#         # 3. Parse the Structured Output
+#         try:
+#             data = json.loads(response_json_str)
+            
+#             # Extract the specific field defined in our schema
+#             markdown_content = data.get("mentorship_report")
+            
+#             if not markdown_content:
+#                 # Fallback if key is missing but 'markdown' or 'report' exists
+#                 markdown_content = data.get("markdown") or data.get("report") or response_json_str
+                
+#             # If it's still a dict/object (nested), stringify it or take a best guess
+#             if isinstance(markdown_content, dict):
+#                  markdown_content = json.dumps(markdown_content)
+
+#             return markdown_content.strip()
+            
+#         except json.JSONDecodeError:
+#             # Fallback if model failed to produce valid JSON (rare with Gemini 2.0/3.0)
+#             logger.warning("[Mentor] Failed to parse JSON, returning raw response")
+#             # Attempt to strip code fences if present
+#             clean_resp = response_json_str.strip()
+#             if clean_resp.startswith("```json"):
+#                 clean_resp = clean_resp[7:]
+#             if clean_resp.endswith("```"):
+#                 clean_resp = clean_resp[:-3]
+#             return clean_resp.strip()
+        
+#     except Exception as e:
+#         logger.error(f"[Mentor] Generation failed: {e}")
+#         return f"# Error\nCould not generate report: {str(e)}"
+
+
 async def _generate_mentorship_markdown(context: Dict) -> str:
     """
-    Generate detailed, personalized markdown report using Gemini.
-
-
+    Generate detailed, personalized markdown report using a simple retry loop.
     """
-
-
+    # 1. Prepare Content Strings
     strengths_str = "\n".join(f"- {s}" for s in context['strengths'])
     
     missing_str = "\n".join(
@@ -882,7 +964,7 @@ async def _generate_mentorship_markdown(context: Dict) -> str:
         for i in context['code_issues']
     )
 
-    # [ADD] Prepare Variables
+    # 2. Prepare Variables
     prompt_variables = {
         "current_level": context['current_level'],
         "level_name": context['level_name'],
@@ -895,56 +977,69 @@ async def _generate_mentorship_markdown(context: Dict) -> str:
         "quality_level": context['quality_level'],
         "patterns_found": context['patterns_found'],
         "architecture_maturity": context['architecture_maturity'],
-        
-        # Pass the pre-formatted strings
         "strengths": strengths_str,
         "missing_elements": missing_str,
         "code_issues": issues_str,
         "code_samples": context['code_samples']
     }
 
-    try:
-        prompt_text = prompt_manager.format_prompt("mentor-agent-v1", prompt_variables)
-        # 2. Call LLM (Updated for OpenRouter)
-        response_json_str = await prompt_manager.call_llm(
-            prompt_text=prompt_text,
-            model=settings.MENTOR_MODEL,
-            enable_reasoning=True,
-            json_mode=True,
-            temperature=0.7
-        )
-        
-        # 3. Parse the Structured Output
-        try:
-            data = json.loads(response_json_str)
-            
-            # Extract the specific field defined in our schema
-            markdown_content = data.get("mentorship_report")
-            
-            if not markdown_content:
-                # Fallback if key is missing but 'markdown' or 'report' exists
-                markdown_content = data.get("markdown") or data.get("report") or response_json_str
-                
-            # If it's still a dict/object (nested), stringify it or take a best guess
-            if isinstance(markdown_content, dict):
-                 markdown_content = json.dumps(markdown_content)
+    prompt_text = prompt_manager.format_prompt("mentor-agent-v1", prompt_variables)
 
-            return markdown_content.strip()
+    # ====================================================================
+    # RETRY LOGIC (Simple Loop)
+    # ====================================================================
+    max_retries = 3
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Logic: Try "Reasoning" for the first 2 attempts, then disable it for safety.
+            use_reasoning = (attempt < 3)
             
-        except json.JSONDecodeError:
-            # Fallback if model failed to produce valid JSON (rare with Gemini 2.0/3.0)
-            logger.warning("[Mentor] Failed to parse JSON, returning raw response")
-            # Attempt to strip code fences if present
-            clean_resp = response_json_str.strip()
-            if clean_resp.startswith("```json"):
-                clean_resp = clean_resp[7:]
-            if clean_resp.endswith("```"):
-                clean_resp = clean_resp[:-3]
-            return clean_resp.strip()
-        
-    except Exception as e:
-        logger.error(f"[Mentor] Generation failed: {e}")
-        return f"# Error\nCould not generate report: {str(e)}"
+            logger.info(f"[Mentor] Generation Attempt {attempt}/{max_retries} (Reasoning={use_reasoning})...")
+
+            response_json_str = await prompt_manager.call_llm(
+                prompt_text=prompt_text,
+                model=settings.MENTOR_MODEL,
+                enable_reasoning=use_reasoning, 
+                json_mode=True,
+                temperature=0.7
+            )
+            
+            # Parsing Logic
+            try:
+                data = json.loads(response_json_str)
+                # Look for the report in various likely keys
+                markdown_content = data.get("mentorship_report") or data.get("markdown") or data.get("report")
+                
+                # Success! Return immediately.
+                if markdown_content:
+                    if isinstance(markdown_content, dict):
+                        return json.dumps(markdown_content).strip()
+                    return markdown_content.strip()
+                    
+            except json.JSONDecodeError:
+                # If JSON fails, try to use the raw text if it looks reasonable
+                if len(response_json_str) > 50:
+                    clean_resp = response_json_str.strip()
+                    if clean_resp.startswith("```json"): clean_resp = clean_resp[7:]
+                    if clean_resp.endswith("```"): clean_resp = clean_resp[:-3]
+                    return clean_resp.strip()
+
+            # If we got here, the response was empty or invalid JSON. Raise error to trigger retry.
+            raise ValueError("LLM returned invalid or empty JSON")
+
+        except Exception as e:
+            logger.warning(f"[Mentor] Attempt {attempt} failed: {e}")
+            if attempt == max_retries:
+                # If the final attempt fails, return a safe error message
+                logger.error("[Mentor] All retry attempts failed.")
+                return f"# Analysis Error\n\nWe analyzed your code but could not generate the mentorship report at this time. (Error: {str(e)})"
+            
+            # Wait a short moment before retrying (optional)
+            import asyncio
+            await asyncio.sleep(1)
+
+    return "# Error\nSystem error."
 
 
 def _get_level_name(level: int) -> str:

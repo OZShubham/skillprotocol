@@ -322,13 +322,13 @@ class GraderResult(BaseModel):
 # ============================================================================
 
 @track_agent(
-    name="Grader Agent (Refactored)",
+    name="Grader Agent",
     agent_type="llm",
     tags=["grader", "openrouter"]
 )
 async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
     """
-    Grader Agent - REFACTORED FOR OPENROUTER
+    Grader Agent 
     """
     job_id = state["job_id"]
     state["current_step"] = "grader"
@@ -491,8 +491,7 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
         """
     
     try:
-        # Create agent with simplified tools
-        # Using standard create_agent approach
+        # Create agent 
         agent = create_agent(
             model=llm,
             tools=tools,
@@ -503,8 +502,43 @@ async def grade_sfia_level(state: AnalysisState) -> AnalysisState:
             )
         )
         
-        # Run agent
         push_live_log(job_id, "grader", "🔍 Evaluating against SFIA rubric...", "success")
+        
+        # --- ROBUST RETRY LOOP START ---
+        max_retries = 3
+        grader_result = None
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(f"[Grader] Attempt {attempt}/{max_retries}...")
+                
+                result = await agent.ainvoke({
+                    "messages": [{
+                        "role": "user", 
+                        "content": f"Assess SFIA level for this repository using the pre-analyzed data provided."
+                    }]
+                })
+                
+                grader_result = result.get("structured_response")
+                if grader_result:
+                    break # Success!
+                    
+            except Exception as e:
+                logger.warning(f"[Grader] Attempt {attempt} failed with error: {e}")
+                push_live_log(job_id, "grader", f"⚠️ Attempt {attempt} timed out. Retrying...", "warning")
+                
+                if attempt == max_retries:
+                    raise e # Re-raise on final failure
+                
+                import asyncio
+                await asyncio.sleep(2) # Wait 2s before retry
+        # --- ROBUST RETRY LOOP END ---
+        
+        if not grader_result:
+            logger.warning("Agent returned no structure, trying direct generation")
+            raise ValueError("No structured response from agent")
+        
+        push_live_log(job_id, "grader", "✅ Assessment complete!", "success")
         
         result = await agent.ainvoke({
             "messages": [{
