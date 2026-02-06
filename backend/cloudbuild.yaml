@@ -1,9 +1,6 @@
 steps:
   # ==============================================================================
-  # Step 1: Build the Container Image
-  # ==============================================================================
-  # This uses your Dockerfile to build the image.
-  # We try to pull the "latest" image first to use as a cache layer (speeds up build).
+  # Step 1: Build
   # ==============================================================================
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
@@ -18,9 +15,7 @@ steps:
           .
 
   # ==============================================================================
-  # Step 2: Push the Image to Google Container Registry
-  # ==============================================================================
-  # We push both the specific commit version (for history) and the 'latest' tag.
+  # Step 2: Push
   # ==============================================================================
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/skillprotocol-backend:latest']
@@ -29,17 +24,14 @@ steps:
     args: ['push', 'gcr.io/$PROJECT_ID/skillprotocol-backend:$COMMIT_SHA']
 
   # ==============================================================================
-  # Step 3: Deploy to Cloud Run
-  # ==============================================================================
-  # This updates your EXISTING service.
-  # IMPORTANT: It preserves all your existing Environment Variables (DB URL, API Keys).
+  # Step 3: Deploy
   # ==============================================================================
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'skillprotocol-backend'  # Must match your current service name exactly
+      - 'skillprotocol-backend'  # <--- MUST MATCH YOUR RUNNING SERVICE NAME
       - '--image'
       - 'gcr.io/$PROJECT_ID/skillprotocol-backend:$COMMIT_SHA'
       - '--region'
@@ -47,12 +39,6 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
-
-# ==============================================================================
-# Timeout & Options
-# ==============================================================================
-timeout: '1200s' # 20 minutes
-
 
 images:
   - 'gcr.io/$PROJECT_ID/skillprotocol-backend:latest'
