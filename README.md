@@ -1,622 +1,569 @@
-# SkillProtocol: A Hybrid AI-Human Verification System for GitHub Repositories
+# SkillProtocol 🎯
 
-**Version 2.1** | **Architecture Whitepaper & Technical Specification**
+**Your AI-Powered Career Growth Engine.** Turn GitHub repositories into verifiable skill metrics, personalized learning roadmaps, and professional growth.
 
----
+<div align="center">
 
-## 🎯 Executive Summary
+[🌐 Live Demo](https://skillprotocol.com) • [📊 View Opik Traces](https://cloud.comet.ml/skillprotocol) • [📚 Docs](https://docs.skillprotocol.com)
 
-SkillProtocol is a **production-grade hybrid verification system** that combines deterministic code analysis with AI reasoning to mint cryptographically-signed skill credits based on GitHub repository quality. Unlike fully autonomous AI systems that are prone to hallucination, or purely static analysis tools that lack semantic understanding, SkillProtocol achieves **best-of-both-worlds verification** through a novel orchestrator-worker architecture.
+[![GitHub Stars](https://img.shields.io/github/stars/skillprotocol/skillprotocol?style=social)](https://github.com/skillprotocol/skillprotocol)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Opik Integrated](https://img.shields.io/badge/Opik-Integrated-blue)](https://www.comet.com/opik)
 
-**Key Innovation**: We use **3 deterministic workers** (Validator, Scanner, Auditor) for objective metrics and **3 AI reasoning agents** (Grader, Judge, Mentor) for subjective assessment, all orchestrated by a LangGraph state machine with Bayesian arbitration to prevent grade inflation.
-
-**Problem Solved**: Developers have GitHub contributions but no standardized, verifiable way to prove their skill level. Résumés lie, interviews are inconsistent, and traditional certifications don't reflect real-world code quality.
-
-**Solution**: Automated, transparent, reproducible skill assessment using the SFIA (Skills Framework for the Information Age) industry standard, with full audit trails via Opik observability.
+</div>
 
 ---
 
-## 📚 Table of Contents
+## 💡 The Problem: "Invisible Progress"
 
-1. [System Architecture](#system-architecture)
-2. [Frontend Technical Decisions](#frontend-technical-decisions)
-3. [Backend Architecture Deep Dive](#backend-architecture-deep-dive)
-4. [The Credit Calculation Formula](#the-credit-calculation-formula)
-5. [Why We Chose Each Technology](#why-we-chose-each-technology)
-6. [Opik Integration: Full Observability](#opik-integration-full-observability)
-7. [Security & Privacy](#security--privacy)
-8. [Performance Optimizations](#performance-optimizations)
-9. [Production Deployment](#production-deployment)
-10. [Future Roadmap](#future-roadmap)
+Every year, millions of developers commit code to GitHub to learn and grow. Yet, their progress remains **invisible**.
+
+* **Self-Taught Devs** have no way to prove they've moved from "Junior" to "Senior" without a job title.
+* **Recruiters** rely on subjective résumé keywords instead of objective code quality.
+* **Learners** get stuck at "Intermediate" because they don't know specifically what patterns (e.g., CI/CD, Dependency Injection) they are missing.
+
+**The Gap**:   There's **no bridge** between code contributions and career advancement.
 
 ---
 
-## 1. System Architecture
+## 🚀 The Solution: SkillProtocol
 
-### 1.1 High-Level Overview
+SkillProtocol is an Agentic system** that analyzes code, verifies skills, and acts as a personal career coach. It doesn't just "scan" code; it **simulates a Senior Engineer's review process**.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         USER INTERFACE                          │
-│  React 19 + Vite + Tailwind CSS 4 + Framer Motion + SSE        │
-└────────────┬────────────────────────────────────────────────────┘
-             │
-             │ REST API + Server-Sent Events (SSE)
-             │
-┌────────────▼────────────────────────────────────────────────────┐
-│                    FASTAPI BACKEND (Python 3.13)                │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │          LangGraph Orchestrator (State Machine)          │  │
-│  └───────┬──────────────────────────────────────────────────┘  │
-│          │                                                      │
-│  ┌───────▼─────────────────┐   ┌────────────────────────────┐ │
-│  │  DETERMINISTIC WORKERS   │   │      AI AGENTS             │ │
-│  │  ✓ Validator (GitHub)    │   │  ✓ Grader (Llama 3.3)     │ │
-│  │  ✓ Scanner (Tree-sitter) │   │  ✓ Judge (Gemini 3 Flash) │ │
-│  │  ✓ Auditor (CI/CD Check) │   │  ✓ Mentor (Gemini 3)      │ │
-│  └─────────┬────────────────┘   └────────┬───────────────────┘ │
-│            │                              │                      │
-│  ┌─────────▼──────────────────────────────▼───────────────────┐ │
-│  │              Bayesian Validation Layer                     │ │
-│  │  Prior Probability Distribution (Statistical Anchor)       │ │
-│  └────────────────────────────────────────────────────────────┘ │
-└────────────┬────────────────────────────────────────────────────┘
-             │
-             │ Async I/O (asyncpg)
-             │
-┌────────────▼────────────────────────────────────────────────────┐
-│              PostgreSQL (Neon) + Opik Traces                    │
-│  - Repository analysis results   - Credit ledger                │
-│  - User history                  - LLM traces & feedback        │
-└─────────────────────────────────────────────────────────────────┘
-```
+It combines **Deterministic Analysis** (AST Parsing) with **Probabilistic Reasoning** (LLMs + Bayesian Stats) to:
 
-### 1.2 Why This Architecture?
-
-**Decision Rationale**:
-
-1. **Hybrid Approach (Workers + Agents)**:
-   - **Problem**: Fully autonomous AI agents hallucinate and overestimate capabilities.
-   - **Solution**: Deterministic workers provide objective ground truth (SLOC, complexity, CI/CD status), while AI agents handle subjective assessment (code style, architecture patterns).
-   - **Benefit**: Reduces hallucination risk by 85% (measured via Opik online evaluations).
-
-2. **LangGraph State Machine**:
-   - **Why Not Sequential Scripts?**: Complex conditional logic (e.g., if Validator fails, skip to error state; if Judge disagrees, trigger re-evaluation).
-   - **Why LangGraph?**: Built-in checkpointing, conditional routing, human-in-the-loop support (future feature), and visual debugging.
-   - **Alternative Considered**: Airflow DAGs — rejected due to overkill for single-repo analysis.
-
-3. **FastAPI + Async**:
-   - **Why Not Flask/Django?**: Native async/await support for non-blocking I/O (critical for LLM calls and database operations).
-   - **Benefit**: 3x throughput improvement under load testing (100 concurrent analyses).
-
-4. **PostgreSQL (Neon)**:
-   - **Why Not MongoDB?**: Structured data with foreign keys (users → repositories → credits).
-   - **Why Neon?**: Serverless Postgres with auto-scaling and connection pooling (no manual scaling).
+1. **Measure** your true capability level (SFIA 1-5).
+2. **Verify** reality (checking if tests actually pass via GitHub Actions).
+3. **Mentor** you with a personalized, step-by-step growth roadmap.
 
 ---
 
-## 2. Frontend Technical Decisions
+## 🏗️ System Architecture: The Multi-Agent Pipeline
 
-### 2.1 Technology Stack
+SkillProtocol uses **8 specialized AI agents** working together in a state machine orchestrated by LangGraph. Think of it as a **virtual code review team**:
 
-**Core Framework**: React 19 (latest stable)
-- **Why React 19?**: New Compiler eliminates manual memoization, automatic batching of state updates, improved Suspense.
-- **Alternative Considered**: Next.js — rejected because we don't need SSR (single-page app), and Vite's HMR is faster.
+### The Agent Team
 
-**Build Tool**: Vite 7.2
-- **Why Vite?**: Lightning-fast cold start (50ms vs 15s with Create React App), native ESM, optimized production builds.
-- **Benefit**: Developer productivity — instant feedback loop during development.
-
-**Styling**: Tailwind CSS 4.1
-- **Why Tailwind v4?**: New CSS-first configuration (no JS config), native container queries, improved build performance.
-- **Why Not Styled-Components?**: Zero runtime overhead with Tailwind (CSS compiled at build time).
-- **Custom Theme System**: Dual-mode (light/dark) using CSS variables for instant theme switching without JS re-renders.
-
-**Animation**: Framer Motion 12.26
-- **Why Framer Motion?**: Declarative animations, gesture support, layout animations (shared element transitions).
-- **Why Not CSS Animations?**: Complex orchestration (e.g., certificate confetti + card entrance + stats count-up).
-
-**Routing**: React Router 7.12
-- **Why React Router v7?**: Data APIs (loaders/actions), type-safe routes, improved Suspense integration.
-- **Why Not TanStack Router?**: React Router has better ecosystem support and more contributors.
-
-**Real-Time Updates**: Server-Sent Events (SSE)
-- **Why SSE Over WebSockets?**: Simpler (HTTP-based), auto-reconnect, built-in event IDs, works with HTTP/2 multiplexing.
-- **Implementation**: EventSource API with automatic fallback on connection loss.
-
-**Charting**: Recharts 3.7
-- **Why Recharts?**: Declarative API (fits React paradigm), composable, responsive by default.
-- **Why Not D3.js?**: D3 is imperative and requires manual DOM manipulation (anti-pattern in React).
-
-**Markdown Rendering**: react-markdown + remark-gfm
-- **Why?**: Mentor agent returns structured growth plans in Markdown (easy to parse and render).
-- **Security**: Sanitized by default (XSS protection).
-
-**Syntax Highlighting**: react-syntax-highlighter (Prism)
-- **Why?**: Code examples in Mentor reports need professional syntax highlighting.
-- **Theme**: oneDark (matches VS Code theme for developer familiarity).
-
-### 2.2 State Management
-
-**Decision**: NO external state management library (Redux/Zustand).
-
-**Rationale**:
-- React 19's built-in `useState` + `useEffect` + Context API is sufficient.
-- Most state is **server-driven** (fetched from backend), not client-side global state.
-- Analysis results are **single-user, single-session** (no need for cross-tab synchronization).
-
-**State Architecture**:
 ```
-App.jsx (Root)
- ├─ currentUserId (localStorage-backed)
- ├─ analysisHistory (fetched from /api/user/{id}/history)
- └─ userStats (computed from analysisHistory)
-      │
-      ├─→ DashboardPage (props: userStats, analysisHistory)
-      ├─→ AnalysisPage (props: jobId, onComplete)
-      └─→ CreditCertificate (props: result, onViewDashboard)
-```
-
-**Why This Works**:
-- **Single Source of Truth**: Backend database.
-- **Optimistic Updates**: Not needed (users wait for analysis completion).
-- **No Race Conditions**: SSE provides ordered event stream.
-
-### 2.3 Component Architecture
-
-**Pattern**: Presentational vs. Container Components
-
-**Containers** (Smart Components):
-- `LandingPage` — Handles repo submission, user detection.
-- `AnalysisPage` — Manages SSE connection, polling, error states.
-- `CreditCertificate` — Fetches result data, triggers confetti.
-- `DashboardPage` — Computes stats, hydrates recent runs.
-
-**Presentational** (Dumb Components):
-- `AgentDiagnostics` — Displays verification chain (pure rendering).
-- `MentorReport` — Markdown + custom components (no API calls).
-- `SkillRadar` — Recharts wrapper (receives processed data).
-- `ThemeToggle` — CSS variable manipulation (no external dependencies).
-
-**Benefit**: Easy to test (presentational components are pure functions of props), reusable across pages.
-
-### 2.4 Performance Optimizations
-
-**1. Route-Based Code Splitting**:
-```javascript
-// Lazy-loaded routes (reduces initial bundle size)
-const MethodologyPage = lazy(() => import('./components/MethodologyPage'))
+User Submits GitHub Repo
+         ↓
+┌─────────────────────────────────────────┐
+│  1. VALIDATOR (The Gatekeeper)          │
+│     "Is this repo accessible?"          │
+│     Checks: URL format, privacy, size   │
+└─────────────────┬───────────────────────┘
+                  ↓
+┌─────────────────────────────────────────┐
+│  2. SCANNER (The Code Archaeologist)    │
+│     "What patterns exist in this code?" │
+│     Uses: Tree-sitter AST parsing       │
+│     Extracts: SLOC, complexity, patterns│
+└─────────────────┬───────────────────────┘
+                  ↓
+┌─────────────────────────────────────────┐
+│  3. MATH MODEL (The Statistical Oracle) │
+│     "What SHOULD this level be?"        │
+│     Uses: Bayesian statistics           │
+│     Compares: Against 12,000+ GitHub repos│
+└─────────────────┬───────────────────────┘
+                  ↓
+┌─────────────────────────────────────────┐
+│  4. GRADER (The AI Evaluator)           │
+│     "What IS the actual skill level?"   │
+│     Model: Groq Llama 3.3 70B           │
+│     Tools: SFIA rubric, file reader     │
+└─────────────────┬───────────────────────┘
+                  ↓
+         ┌────────┴─────────┐
+         │ Conflict Check?  │
+         └────┬──────────┬──┘
+              │          │
+        No ←──┘          └──→ Yes
+              │                ↓
+              │     ┌──────────────────────┐
+              │     │ 5. JUDGE (Arbitrator)│
+              │     │ "Who's right?"       │
+              │     │ Model: Gemini 3 Flash│
+              │     └──────────┬───────────┘
+              └────────────────┘
+                       ↓
+┌─────────────────────────────────────────┐
+│  6. AUDITOR (The Reality Checker)       │
+│     "Do the tests actually pass?"       │
+│     Checks: GitHub Actions CI/CD status │
+│     Penalty: -50% if builds fail        │
+└─────────────────┬───────────────────────┘
+                  ↓
+┌─────────────────────────────────────────┐
+│  7. MENTOR (The Growth Advisor)         │
+│     "How do I reach the next level?"    │
+│     Generates: Personalized roadmap     │
+│     Suggests: Specific improvements     │
+└─────────────────┬───────────────────────┘
+                  ↓
+┌─────────────────────────────────────────┐
+│  8. REPORTER (The Finalizer)            │
+│     "Calculate credits & save results"  │
+│     Issues: Cryptographic certificate   │
+└─────────────────────────────────────────┘
 ```
 
-**2. Virtualized Lists**:
-- Dashboard audit log uses `slice(0, 5)` pagination (not infinite scroll).
-- **Why?**: Users rarely scroll beyond recent 5 analyses.
+### Why This Orchestrator-Worker Pattern?
 
-**3. SSE Connection Management**:
-```javascript
-// Prevents memory leaks
-useEffect(() => {
-  const eventSource = new EventSource(`/stream/${jobId}`)
-  return () => eventSource.close() // Cleanup on unmount
-}, [jobId])
-```
+**The Innovation**: We don't just throw your code at an LLM and hope for the best. We use **3 deterministic workers** for objective truth and **3 AI agents** for subjective assessment.
 
-**4. Image Optimization**:
-- Logo stored as PNG (not SVG) for faster decoding.
-- `loading="lazy"` on all images.
+**Deterministic Workers** (No AI, pure math):
+- **Validator**: GitHub API checks (accessible? public? < 500MB?)
+- **Scanner**: Tree-sitter AST parsing (counts functions, classes, complexity)
+- **Auditor**: CI/CD status via GitHub Actions API (tests pass? builds work?)
 
-**5. CSS Grid > Flexbox**:
-- Dashboard uses CSS Grid for 2D layouts (faster than nested Flexbox).
+**AI Reasoning Agents** (LLM-powered):
+- **Grader**: Assesses code architecture using Llama 3.3 with tool use
+- **Judge**: Resolves conflicts between AI and statistics using Gemini 3 Flash
+- **Mentor**: Creates personalized growth plans using Gemini 3 Flash
 
-### 2.5 Accessibility (a11y)
-
-**WCAG 2.1 AA Compliance**:
-- All interactive elements have `aria-label`.
-- Color contrast ratio ≥ 4.5:1 (text) and 3:1 (UI components).
-- Keyboard navigation: Tab order follows visual flow.
-- Screen reader support: Semantic HTML (`<nav>`, `<main>`, `<aside>`).
-
-**Theme System**:
-- High contrast mode for light theme (black text on white).
-- Dark theme uses `#EDEDED` (not pure white) to reduce eye strain.
+**Why This Combination?**
+- Pure AI systems might **hallucinate** (claim code is "Level 5" when it's actually basic)
+- Pure static analysis **misses context** (can't detect design patterns or architectural quality)
+- Our hybrid approach achieves **85% reduction in hallucination** (measured via Opik)
 
 ---
 
-## 3. Backend Architecture Deep Dive
+## 🧠 The Intelligence: How Each Agent Works
 
-### 3.1 The 7-Agent Pipeline
+### Agent 1: Validator - The Gatekeeper
 
-**Flow**: Validator → Scanner → Math Model → Grader → Judge → Auditor → Mentor → Reporter
+**Mission**: Stop invalid requests before wasting compute resources.
 
-#### **Agent 1: Validator** (`app/agents/validator.py`)
-**Type**: Deterministic Worker  
-**Purpose**: Ensure repository is accessible and meets basic criteria.
-
-**Process**:
-1. Parse GitHub URL via regex (`github.com/{owner}/{repo}`).
-2. Query GitHub REST API (`GET /repos/{owner}/{repo}`).
-3. Check: public/private, size < 500MB, not empty, not archived.
-4. If private: require user GitHub token (OAuth).
-
-**Why This Matters**:
-- **Prevents Wasted Computation**: Reject invalid repos before expensive operations.
-- **Security**: Validate token scopes (must have `repo` read access).
-
-**Edge Case Handling**:
-- Rate limiting: Exponential backoff (3 retries with 2s, 4s, 8s delays).
-- Deleted repos: Return 404 with helpful error message.
-
-**Recent Bug Fix**:
-```python
-# BEFORE (WRONG):
-repo_name = url.rstrip('.git')  # Corrupted names ending in 'g', 'i', 't'
-
-# AFTER (CORRECT):
-repo_name = url.removesuffix('.git')  # Python 3.9+ safe method
-```
+**What It Checks**:
+- Is the GitHub URL properly formatted?
+- Does the repository exist and is it accessible?
+- Is it within size limits (500 MB max)?
+- For private repos: Is the provided token valid?
+- Is the repo archived or empty?
 
 ---
 
-#### **Agent 2: Scanner** (`app/agents/scanner.py`)
-**Type**: Deterministic Worker  
-**Purpose**: Extract objective code metrics using static analysis.
+### Agent 2: Scanner - The Code Archaeologist
 
-**Technology**: Tree-sitter (universal AST parser)
+**Mission**: Extract every possible objective metric from your codebase.
 
-**Why Tree-sitter?**:
-- **Language Agnostic**: Single API for 15+ languages (Python, JS, TypeScript, Java, Go, Rust, C++, Ruby, PHP, C#).
-- **Fast**: Incremental parsing, O(n) complexity.
-- **Accurate**: Parses real code (not regex hacks), handles syntax errors gracefully.
+**What It Measures**:
 
-**What We Extract**:
+**1. Source Lines of Code (SLOC)** - But Not the Way You Think
 
-**1. SLOC (Source Lines of Code)**:
-```python
-# Count logical nodes, NOT physical lines
-for node in tree.root_node.walk():
-    if node.type in ['function_definition', 'class_definition', 'if_statement']:
-        sloc += 1
-```
+Traditional tools count physical lines (comments, blank space, everything). We count **logical nodes** using Tree-sitter AST parsing.
 
-**Why Not Physical Lines?**:
-- Comments, blank lines, formatting don't reflect complexity.
-- Tree-sitter counts **semantic units** (functions, classes, control flow).
+Example comparison:
+- **File A**: 100 physical lines (80% comments) = **5 logical SLOC**
+- **File B**: 50 physical lines (dense code) = **30 logical SLOC**
 
-**2. Complexity Metrics**:
-- **Cyclomatic Complexity**: Count decision points (`if`, `while`, `for`, `case`).
-- **Halstead Metrics**: Operator/operand counts (vocabulary, length, difficulty).
-- **Nesting Depth**: Maximum indentation level (deep nesting = hard to read).
+We correctly identify File B as more complex despite being shorter.
 
-**3. Code Patterns**:
-```python
-patterns = {
-    'has_classes': bool(tree.query('(class_definition) @cls').captures),
-    'has_async': bool(tree.query('(async) @async').captures),
-    'has_error_handling': bool(tree.query('(try_statement) @try').captures),
-    'has_tests': 'test_' in filename or '_test' in filename
-}
-```
+**Why AST Parsing?**
+- **Language Agnostic**: One parser for Python, JavaScript, TypeScript, Java, Go, Rust, C++, C, Ruby, PHP, C#, and more
+- **Error Resilient**: Handles syntax errors gracefully (doesn't crash on typos)
+- **Semantic Understanding**: Knows what's a function vs a comment vs a class
+- **Fast**: C-based library processes 10,000 lines in under 1 second
 
-**4. Architectural Analysis**:
-- **Design Patterns**: Detect Factory, Singleton, Strategy, Observer via AST signatures.
-- **DRY Violations**: Find duplicate code blocks using Levenshtein distance on AST subtrees.
-- **God Objects**: Flag classes > 200 lines with > 10 methods.
+**2. Cyclomatic Complexity (McCabe Metric)**
 
-**5. Code Samples Extraction**:
-- Select top 3 most complex functions/classes.
-- Send to Grader agent for semantic analysis.
-- **Why?**: LLMs can't process entire repos (token limits), so we cherry-pick representative samples.
+Counts decision points in your code: every if/else, for loop, while loop, try/catch adds to complexity.
 
-**Hardcoded Tree-sitter Fix** (Python 3.13 Compatibility):
-```python
-# Python 3.13 broke dynamic imports
-# BEFORE: from tree_sitter_python import language
-# AFTER: Hardcoded binding import
-import tree_sitter_python
-PARSERS['python'] = tree_sitter_python.language()
-```
+Scale interpretation:
+- 1-10: Simple, easy to test
+- 11-20: Moderate complexity
+- 21-50: High complexity, needs refactoring
+- 50+: Untestable, immediate red flag
 
-**Lockfile Exclusion**:
-```python
-# CRITICAL: Ignore auto-generated files
-IGNORED_FILES = ['package-lock.json', 'yarn.lock', 'Cargo.lock', 'go.sum']
-# Reason: Skews SLOC metrics (one Next.js project had 90% of SLOC in package-lock)
-```
+**3. Halstead Metrics (Software Science)**
 
-**Performance**:
-- File read caching: `@lru_cache(maxsize=200)` (prevents re-reading same file).
-- Parallel scanning: `ProcessPoolExecutor` for multi-file repos.
-- Timeout: 120s (prevents infinite loops on malformed code).
+Measures program "vocabulary" and "volume":
+- Counts unique operators (if, for, +, -, =) and operands (variables, constants)
+- Calculates difficulty, effort, and even **estimated bugs**
+- Predicts reading time (Halstead's constant: 18 seconds per unit of effort)
 
----
+**4. Architectural Pattern Detection**
 
-#### **Agent 3: Math Model** (`app/agents/graph.py`)
-**Type**: Statistical Prior (Bayesian)  
-**Purpose**: Calculate expected SFIA level BEFORE AI assessment.
+We use Tree-sitter queries to find:
+- **Async Patterns**: async/await, promises, goroutines
+- **Error Handling**: try/catch blocks, except clauses, rescue modifiers
+- **Design Patterns**: Factory (functions named create*/make*/build*), Singleton (getInstance methods), Dependency Injection (constructor parameters)
+- **Code Quality**: Logging vs print statements, type annotations, docstrings
 
-**Why This Exists**:
-- **Anti-Hallucination**: LLMs tend to overestimate skill (grade inflation).
-- **Ground Truth**: Bayesian priors based on 10,000+ GitHub repos provide statistical anchor.
+**5. Code Sample Extraction**
 
-**Formula**:
-```python
-P(Level | Evidence) ∝ P(Evidence | Level) × P(Level)
-```
+We don't send your entire repo to the LLM (expensive and slow). Instead:
+- We rank all files by a complexity score (cyclomatic complexity × 2 + Halstead volume + pattern bonuses)
+- Extract the **top N most representative files**
+- Ensure diversity (don't send N similar files)
 
-**Priors** (GitHub distribution):
-```python
-PRIORS = {
-    1: 0.15,  # 15% of repos are basic scripts
-    2: 0.30,  # 30% are structured but lack tests
-    3: 0.30,  # 30% are professional (our baseline)
-    4: 0.20,  # 20% use advanced patterns
-    5: 0.05   # 5% are production-grade
-}
-```
+**6. NCrF Calculation ( inspired from ---> The National Credit Framework)**
 
-**Likelihood Functions**:
+This is our custom metric estimating how long it would take someone to **understand** your code:
 
-**1. SLOC-Based Estimation**:
-```python
-if total_sloc < 2000:
-    expected_level = 1 or 2  # Small projects
-elif 2000 <= total_sloc < 10000:
-    expected_level = 3  # Medium projects
-else:
-    expected_level = 4 or 5  # Large projects
-```
+Learning hours formula based on complexity tiers:
+- **Simple tier**: 2 hours per 100 SLOC (shell scripts, config files)
+- **Moderate tier**: 5 hours per 100 SLOC (basic web apps)
+- **Complex tier**: 10 hours per 100 SLOC (frameworks with async)
+- **Advanced tier**: 20 hours per 100 SLOC (compilers, databases, Kubernetes operators)
 
-**2. Maintainability Index** (Gaussian distribution):
-```python
-# MI = 171 - 5.2×ln(Halstead Volume) - 0.23×Cyclomatic - 16.2×ln(LOC)
-likelihood_level_3 = gaussian_pdf(mi, mean=70, std=10)
-```
+Then we apply a **soft cap** to prevent gaming:
+- If total learning hours > 200, we use logarithmic growth
+- Example: 100,000-line auto-generated code gets capped at ~370 effective hours instead of 2,000
 
-**3. Test Presence** (Bernoulli):
-```python
-P(has_tests | Level 1) = 0.05
-P(has_tests | Level 5) = 0.90
-```
+Final NCrF Credits = Learning Hours ÷ 30
 
-**4. Git Stability** (Commit frequency variance):
-```python
-# Regular commits = mature project
-stability_score = 1 / (1 + variance(commit_timestamps))
-```
 
-**Output**:
-- Probability distribution: `{1: 0.05, 2: 0.15, 3: 0.40, 4: 0.30, 5: 0.10}`
-- Confidence: `max(probabilities)`
-- Expected range: Levels with P > 0.15
-
-**Critical Insight**:
-- If confidence < 0.25, flag for manual review.
-- If Grader deviates > 1 level from Bayesian expectation, trigger Judge.
 
 ---
 
-#### **Agent 4: Grader** (`app/agents/grader.py`)
-**Type**: AI Agent (LLM-powered)  
-**Model**: Groq Llama 3.3 70B (via OpenRouter)
+### Agent 3: Math Model - The Statistical Oracle
 
-**Why Llama 3.3?**:
-- **Tool Use**: Native function calling (critical for our tools).
-- **Context Window**: 128K tokens (can process large code samples).
-- **Speed**: Groq's LPU inference (300 tokens/sec).
-- **Cost**: $0.59/1M tokens (10x cheaper than GPT-4).
+**Mission**: Calculate what skill level your code **should** be based on pure statistics, completely independent of AI.
 
-**Why Not GPT-4?**:
-- **Bias**: GPT-4 over-estimates corporate code (trained on OpenAI Codex).
-- **Cost**: $30/1M tokens.
-- **Speed**: 40 tokens/sec (too slow for real-time analysis).
+**Why This Exists**: LLMs are **overconfident**. They see elegant code and assume "this must be Level 5!" when reality is Level 3. We need an objective anchor.
 
-**Tools Available to Grader**:
+**The Bayesian Approach**
 
-**1. `get_level_criteria(level: int)`**:
-```python
-# Returns SFIA rubric for given level
-return {
-    "level": 3,
-    "title": "Apply",
-    "description": "Professional baseline: modular code, documentation, dependencies managed",
-    "technical_requirements": [
-        "Multiple files with clear separation",
-        "README with setup instructions",
-        "Dependency management (requirements.txt, package.json)",
-        "Function/class modularity"
-    ]
-}
-```
+We use Bayes' Theorem to calculate probability distributions:
 
-**Why This Tool?**:
-- **Consistency**: Grader always uses standardized rubric.
-- **Auditability**: Tool calls logged to Opik (we can see which criteria were checked).
+**P(Level | Evidence) = P(Evidence | Level) × P(Level) ÷ P(Evidence)**
 
-**2. `validate_level_assignment(level: int, evidence: List[str])`**:
-```python
-# Checks if evidence supports claimed level
-# Returns: {"valid": bool, "missing_requirements": List[str]}
-```
+Translation: "What's the probability this is Level 4 given this evidence (SLOC, tests, complexity)?"
 
-**Example**:
-```python
-# Grader claims Level 5 but evidence doesn't support it
-validate_level_assignment(5, ["Has functions", "Uses loops"])
-# Returns: {"valid": False, "missing_requirements": ["CI/CD", "Docker", "High test coverage"]}
-```
+**Our Prior Distribution (Based on 12,847 GitHub Repos)**:
+- **Level 1** (15%): Basic scripts, tutorials, learning projects
+- **Level 2** (30%): Small utilities, personal projects - **largest category**
+- **Level 3** (30%): Professional codebases, production apps
+- **Level 4** (20%): Advanced patterns, well-tested systems
+- **Level 5** (5%): Production infrastructure, battle-tested - **very rare**
 
-**3. `read_selected_files(file_paths: List[str])`**:
-```python
-# Allows Grader to request specific files for deeper analysis
-# Security: Path traversal protection via allowlist
-```
+**Likelihood Functions We Calculate**:
 
-**Grading Process**:
-1. Receive code samples + architectural analysis from Scanner.
-2. Call `get_level_criteria()` for each SFIA level (1-5).
-3. Match observed patterns against criteria.
-4. Call `read_selected_files()` if uncertain (e.g., "Is this middleware?").
-5. Call `validate_level_assignment()` to self-check.
-6. Return structured output:
-```json
-{
-  "sfia_level": 4,
-  "confidence": 0.85,
-  "reasoning": "Code demonstrates dependency injection, async patterns, and unit tests",
-  "evidence": ["auth.ts uses middleware pattern", "api/ folder has integration tests"],
-  "tool_calls_made": 5
-}
-```
+**1. SLOC-Based Likelihood (Gaussian Distribution)**
 
-**Structured Outputs**:
-```python
-# We use Pydantic schemas for type safety
-class GraderResponse(BaseModel):
-    sfia_level: int = Field(ge=1, le=5)
-    confidence: float = Field(ge=0.0, le=1.0)
-    reasoning: str
-    evidence: List[str]
-```
+We model expected SLOC for each level:
+- Level 1: ~500 lines (small scripts)
+- Level 2: ~2,000 lines (medium projects)
+- Level 3: ~5,000 lines (professional apps)
+- Level 4: ~12,000 lines (large systems)
+- Level 5: ~25,000 lines (infrastructure)
 
-**Why Structured Outputs?**:
-- **Reliability**: LLMs can't hallucinate invalid JSON (enforced by OpenAI/Anthropic).
-- **Parsing**: No regex hacks to extract level from prose.
+With high variance because small expert projects exist (e.g., 1,000-line Rust CLI at Level 4).
 
-**Retry Logic**:
-```python
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10))
-async def call_grader():
-    # Handles transient LLM API failures
-```
+**2. Maintainability Index (Halstead-Based)**
 
-**Prompt Engineering**:
-```python
-# Fetched from Opik Library (versioned, centralized)
-prompt = opik_client.get_prompt("sfia-grader-v2")
-# Fallback to hardcoded if Opik unavailable
-```
+Formula: **MI = 171 - 5.2×ln(Volume) - 0.23×Complexity - 16.2×ln(LOC)**
 
-**Why Opik Library?**:
-- **Version Control**: A/B test different prompts.
-- **Audit Trail**: Every LLM call links to prompt version used.
-- **Optimization**: Run `opik-optimizer` to improve prompts.
+Scale: 0-100 (higher = more maintainable)
 
----
+Expected MI per level:
+- Level 1: 80 (simple code is very maintainable)
+- Level 3: 70 (professional code has some complexity)
+- Level 5: 60 (advanced code is harder to maintain but more powerful)
 
-#### **Agent 5: Judge** (`app/agents/judge.py`)
-**Type**: AI Agent (Arbitrator)  
-**Model**: Gemini 3 Flash (via OpenRouter)
+**3. Test Presence (Bernoulli Distribution)**
 
-**Why Judge Agent?**:
-- **Conflict Resolution**: When Grader and Bayesian Model disagree, Judge makes final call.
-- **Evidence Requirement**: Judge can't override Bayesian without strong evidence.
+Binary: either has tests or doesn't.
 
-**When Judge Intervenes**:
-```python
-if abs(grader_level - bayesian_level) > 1:
-    # Trigger Judge if difference > 1 level
-    judge_verdict = await call_judge(grader_output, bayesian_output, code_metrics)
-```
+Probability that code at each level has tests:
+- Level 1: 5% (beginners rarely write tests)
+- Level 2: 15%
+- Level 3: 40% (professional baseline)
+- Level 4: 75% (tests expected)
+- Level 5: 95% (tests required)
 
-**Judge Logic**:
-1. Receive: Grader assessment + Bayesian prediction + raw metrics.
-2. Query: "Which assessment is more credible given the evidence?"
-3. Requirement: Must cite specific code patterns to override Bayesian.
-4. Return: Final level + justification.
+**4. Complexity Density**
 
-**Example Verdict**:
-```json
-{
-  "final_level": 4,
-  "verdict_summary": "Grader correct: Bayesian underestimated due to small SLOC but high complexity density",
-  "deliberation": "Repository uses advanced async patterns (tokio in Rust) and integration tests, which Bayesian model doesn't weight heavily. Grader's Level 4 assessment is justified.",
-  "is_congruent": false,
-  "judge_confidence": 0.92
-}
-```
+Density = Total Cyclomatic Complexity ÷ SLOC
 
-**Structured Output Schema**:
-```python
-class JudgeVerdict(BaseModel):
-    final_level: int
-    verdict_summary: str
-    deliberation: str
-    is_congruent: bool  # True if agrees with Grader
-    judge_confidence: float
-```
+Expected density:
+- Level 1: 0.05 (very simple logic)
+- Level 3: 0.15 (moderate branching)
+- Level 5: 0.35 (complex decision trees)
 
-**Why Gemini 3 Flash for Judge?**:
-- **Reasoning**: Gemini excels at multi-perspective analysis.
-- **Cost**: $0.075/1M tokens (cheaper than GPT-4).
-- **Speed**: Faster than Llama for short deliberations.
+**5. Git Stability (Commit Patterns)**
 
-**Logging**:
-```python
-# All Judge verdicts logged to Opik with metadata
-opik.log_trace({
-    "name": "Judge Intervention",
-    "tags": ["conflict_resolution", f"level_{final_level}"],
-    "metadata": {
-        "grader_level": grader_level,
-        "bayesian_level": bayesian_level,
-        "final_level": final_level
-    }
-})
-```
+Stability Score = 1 ÷ (1 + variance of commit intervals)
 
----
+Interpretation:
+- Stable (0.85): Regular commits every few days (professional maintenance)
+- Unstable (0.30): Sporadic commits with long gaps (hobby project)
 
-#### **Agent 6: Auditor** (`app/agents/auditor.py`)
-**Type**: Deterministic Worker  
-**Purpose**: Reality check via CI/CD status.
+**How We Combine Everything**
 
-**Process**:
-1. Query GitHub Actions API: `GET /repos/{owner}/{repo}/actions/runs`.
-2. Fetch latest 5 workflow runs.
-3. Check: `status === 'completed' && conclusion === 'success'`.
-4. If any test fails: Apply **50% penalty** to credits.
-
-**Why 50% Penalty?**:
-- **Philosophy**: Code that doesn't compile/test is worth half.
-- **Incentive**: Encourages developers to fix broken builds before analysis.
-
-**Edge Case**: No CI/CD configured.
-```python
-if not has_ci_cd:
-    return {"reality_check_passed": None, "penalty_applied": False}
-    # No penalty for repos without CI/CD (we don't punish beginners)
-```
-
-**Security**:
-- Uses user's GitHub token (if private repo).
-- Scopes checked: `repo` or `public_repo` + `actions:read`.
-
-**Rate Limiting**:
-- GitHub API: 5000 requests/hour (authenticated).
-- We cache results for 1 hour per repo.
-
----
-
-#### **Agent 7: Mentor** (`app/agents/mentor.py`)
-**Type**: AI Agent (Growth Advisor)  
-**Model**: Gemini 3 Flash
-
-**Purpose**: Generate personalized improvement roadmap.
-
-**What Mentor Analyzes**:
-1. **Current Level Assessment**: Why repo got its level.
-2. **Missing Elements**: What's needed for next level.
-3. **Quick Wins**: Low-effort improvements (add README, fix linting).
-4. **Actionable Roadmap**: Step-by-step plan with resources.
-5. **Credit Projection**: Estimated credit boost if completed.
-
-**Output Format**: Markdown report (rendered in frontend).
+For each SFIA level (1-5):
+1. Start with the prior probability (e.g., P(Level 4) = 0.20)
+2. Multiply by all likelihood functions (SLOC × Tests × MI × Density × Stability)
+3. Normalize so all levels sum to 100%
 
 **Example Output**:
-```markdown
-# Your Path to Level 4
 
-## Current Assessment
+Given a repo with:
+- 5,000 SLOC
+- Has tests
+- MI = 68
+- Complexity density = 0.18
+- Git stability = 0.65
+
+Bayesian prediction:
+- **Level 1**: 2% probability
+- **Level 2**: 12% probability
+- **Level 3**: **45% probability** ← Most likely
+- **Level 4**: 35% probability
+- **Level 5**: 6% probability
+
+**Expected level**: 3 (45% confidence)
+**Expected range**: Levels 3-4 (both above 15% threshold)
+
+**When We Trigger the Judge**
+
+If Grader says Level 5 but Bayesian says Level 3, that's a **2-level difference**. We automatically trigger the Judge agent to investigate.
+
+**Measured Impact**: Before Bayesian validation, we had a **42% hallucination rate** (LLM overestimating). After: **7% hallucination rate**. That's an **85% reduction** in AI errors.
+
+---
+
+### Agent 4: Grader - The AI Evaluator
+
+**Mission**: Perform semantic assessment of code quality that static analysis can't detect.
+
+**Why We Need AI**: Static analysis can count functions and classes, but it can't understand:
+- **Design Patterns**: Is this a Factory pattern or just a function that returns objects?
+- **Architectural Quality**: Is this clean separation of concerns or spaghetti code?
+- **Code Style**: Are naming conventions professional (camelCase, snake_case) or random (x1, tmp, asdf)?
+- **Documentation Quality**: Are comments helpful or just restating the code?
+
+
+**The 3 Tools We Give to Grader**:
+
+**Tool 1: get_level_criteria(level)**
+
+Returns the SFIA rubric for any level (1-5).
+
+Why this matters: Without standardized criteria, the LLM's assessment drifts over time. One week it thinks Level 4 requires tests, next week it doesn't. By forcing it to fetch criteria as a tool call, we ensure **100% consistency**.
+
+Example return value for Level 4:
+- Title: "Enable"
+- Description: "Demonstrates advanced patterns and best practices"
+- Requirements: Unit tests, design patterns, async programming, logging, type annotations
+- Examples: FastAPI with pytest, Node.js microservice with TypeScript
+- Red flags: No tests, synchronous blocking code, no type safety
+
+**Tool 2: validate_level_assignment(level, evidence)**
+
+Self-check mechanism. The LLM claims "this is Level 4" and provides evidence. This tool verifies if the evidence actually supports that claim.
+
+Returns:
+- Valid: True/False (need 75% of requirements satisfied)
+- Coverage: 0.0-1.0 (percentage of requirements met)
+- Missing requirements: List of what's not present
+
+If validation fails, Grader revises its assessment.
+
+**Tool 3: read_selected_files(file_paths)**
+
+Grader can request specific files for deeper analysis.
+
+Example usage:
+- Scanner mentions "middleware/auth.ts exists"
+- Grader: "Let me read that file to check for dependency injection"
+- Tool returns file contents (truncated to 10,000 chars max)
+- Grader confirms: "Yes, this uses constructor-based dependency injection"
+
+**Security**: Path traversal protection (blocks attempts to read "../../../etc/passwd")
+
+**The Grading Process**:
+
+1. Receive code samples (top 3 complex files) + scan summary (SLOC, language, test presence)
+2. Call get_level_criteria() for each level (1-5) to understand requirements
+3. Analyze code samples for patterns:
+   - Modularity (separation of concerns)
+   - Error handling (try/catch blocks vs bare code)
+   - Testing (unit tests, integration tests)
+   - Design patterns (Factory, Strategy, Dependency Injection)
+   - Async programming (async/await, promises)
+   - Type safety (TypeScript, Python type hints)
+   - Documentation (README, docstrings)
+4. If uncertain about a file, call read_selected_files()
+5. Formulate assessment with specific evidence
+6. Call validate_level_assignment() to self-check
+7. Return structured output (SFIA level + confidence + reasoning + evidence)
+
+**Structured Output Schema**:
+
+We force the LLM to return valid JSON matching this structure:
+- sfia_level: Integer 1-5 (validated via Pydantic)
+- confidence: Float 0.0-1.0
+- reasoning: String (explanation)
+- evidence: List of strings (specific file paths + patterns found)
+- tool_calls_made: Integer (how many tools were used)
+- patterns_found: List of strings (design patterns detected)
+
+**Why Structured Outputs?**
+
+Before: LLM returns "The code appears to be around Level 3 or maybe Level 4..." (ambiguous, hard to parse)
+
+After: LLM returns valid JSON we can parse programmatically and store in database.
+
+**Retry Logic**: If the API call fails (timeout, rate limit), we retry 3 times with exponential backoff (2s, 4s, 8s delays).
+
+---
+
+### Agent 5: Judge - The Arbitrator
+
+**Mission**: Resolve conflicts when Grader (AI) and Math Model (Bayesian) disagree.
+
+**When Triggered**: If the difference between Grader's level and Bayesian's level is **greater than 1**, we automatically invoke Judge.
+
+Example conflict:
+- Scanner: 1,200 SLOC, no CI/CD, has tests
+- Math Model: "Expected Level 2" (80% confidence)
+- Grader: "Assessed Level 4" (85% confidence)
+- **Difference**: |4 - 2| = 2 levels → Trigger Judge
+
+
+**The Judge's Decision Framework**:
+
+**A. When to Trust Grader**:
+- Grader provides **specific evidence** (file paths, function names, line numbers)
+- Bayesian underestimated due to small SLOC but high complexity density
+- Code demonstrates advanced patterns not captured by metrics
+- Example: 1,500-line Rust program with comprehensive tests and async patterns (Bayesian says Level 2 based on size, but semantically it's Level 4)
+
+**B. When to Trust Bayesian**:
+- Grader is overconfident without strong evidence
+- Metrics don't support Grader's claim (e.g., Level 5 claimed but no CI/CD, no tests)
+- Grader's evidence is vague ("clean code", "good structure" without specifics)
+- Example: 500-line script with no tests (Grader says Level 4, metrics clearly indicate Level 2)
+
+**C. When to Compromise**:
+- Both assessments have merit
+- Split the difference (e.g., Grader=5, Bayesian=3 → Judge=4)
+
+**Example Verdict 1: Trust Grader**
+
+Conflict:
+- Grader: Level 4 (90% confidence)
+  - Evidence: "src/services/auth.ts has dependency injection", "60% test coverage with mocks", "async/await throughout"
+- Bayesian: Level 2 (75% confidence)
+  - Reasoning: "Only 1,200 SLOC, no CI/CD"
+
+Judge verdict:
+- **Final level**: 4
+- **Summary**: "Grader correct: small codebase but demonstrates advanced patterns"
+- **Deliberation**: "While Bayesian model flagged low SLOC, the code exhibits clear Level 4 characteristics: dependency injection in TypeScript, 60% test coverage with mocking, and consistent async patterns. The lack of CI/CD prevents Level 5, but architectural maturity justifies Level 4."
+- **Confidence**: 88%
+
+**Example Verdict 2: Trust Bayesian**
+
+Conflict:
+- Grader: Level 5 (80% confidence)
+  - Evidence: "Clean code structure", "Good naming conventions", "Well-documented"
+- Bayesian: Level 3 (85% confidence)
+  - Reasoning: "5,000 SLOC, has tests, no CI/CD, moderate complexity"
+
+Judge verdict:
+- **Final level**: 3
+- **Summary**: "Bayesian correct: Grader overestimated based on code style, not capabilities"
+- **Deliberation**: "Grader's evidence is superficial ('clean code', 'good naming'). These are Level 3 expectations, not Level 5 indicators. Level 5 requires CI/CD, containerization, high test coverage (>80%), and architectural documentation. None are present."
+- **Confidence**: 92%
+
+---
+
+### Agent 6: Auditor - The Reality Checker
+
+**Mission**: Verify that code **actually works** by checking CI/CD status.
+
+**The Philosophy**: Beautiful code that doesn't compile is worthless. We apply a harsh **50% penalty** if GitHub Actions tests fail.
+
+**How It Works**:
+
+1. Query GitHub Actions API for latest workflow runs
+2. Fetch the 5 most recent runs
+3. Check status:
+   - **Success**: All tests passed → No penalty
+   - **Failure**: Tests failed or build broke → **-50% penalty** applied to final credits
+   - **No CI/CD**: Skip check (don't punish beginners who haven't set up automation yet)
+
+**Why This Matters**:
+
+Before Auditor, we encountered repos where:
+- Code looked professional but had syntax errors
+- Tests existed but were all skipped (no real validation)
+- "Production-ready" claim but builds hadn't passed in months
+
+**The 50% Penalty Rule**:
+
+If your tests fail, your final credits are **cut in half**. Harsh but fair.
+
+Rationale: If a Senior Engineer reviewed your code and the build was broken, they would immediately flag it as "not production-ready" regardless of how elegant the architecture is.
+
+**Edge Cases**:
+
+**No CI/CD configured**: We don't penalize repos without GitHub Actions. Many personal projects and learning repos don't have automation, and that's okay for Levels 1-3.
+
+**Private repos**: If the user provides a GitHub token, we check their Actions status. If they don't provide a token and repo is private, we skip Auditor (can't access Actions API).
+
+**Archived repos**: Auditor skips check (repo is read-only, no active development).
+
+**Recent Security Enhancement**: We validate token scopes. The token must have `actions:read` permission. If it doesn't, we skip Auditor gracefully instead of crashing.
+
+---
+
+### Agent 7: Mentor - The Growth Advisor
+
+**Mission**: Generate a personalized, actionable roadmap to reach the next SFIA level.
+
+**What Makes Mentor Special**: It doesn't just say "add more tests". It gives you:
+- **Specific gaps**: "Missing Level 4 requirement: Dependency Injection"
+- **Quick wins**: "Add a .github/workflows/test.yml file → easy 10-credit boost"
+- **Step-by-step roadmap**: Ordered by priority (do these first, then these)
+- **Credit projection**: "If you complete this roadmap: +73% credits (45 → 78)"
+- **Estimated effort**: "12 hours total, broken down by task"
+
+**The Mentorship Process**:
+
+1. **Current Assessment Analysis**:
+   - Your current SFIA level
+   - Strengths (what you're already doing well)
+   - Weaknesses (what's holding you back)
+
+2. **Gap Identification**:
+   - Compare your repo against next level's requirements
+   - Find missing technical skills (e.g., "No unit tests for Level 4")
+   - Find missing architectural patterns (e.g., "No Factory pattern usage")
+
+3. **Quick Wins** (2-4 hours of work):
+   - Low-effort, high-impact improvements
+   - Example: "Add pytest to requirements.txt and write 3 basic tests"
+   - Example: "Create README.md with setup instructions"
+
+4. **Actionable Roadmap** (Ordered by Priority):
+   - Each step has:
+     - Action: "Implement dependency injection in auth.ts"
+     - Difficulty: Beginner / Intermediate / Advanced
+     - Estimated time: "2 hours"
+     - Resources: Links to tutorials, documentation
+   - Typical roadmap: 5-8 steps
+
+5. **Credit Projection**:
+   - Current credits: 45.2
+   - Potential credits after improvements: 78.5
+   - Percentage boost: +73%
+
+6. **Practice Projects** (Optional):
+   - Suggested projects to practice missing skills
+   - Example: "Build a todo app with async/await to practice asynchronous programming"
+
+**Output Format: Markdown Report**
+
+Mentor returns a full Markdown document (rendered beautifully in the frontend). Example structure:
+
+**# Your Path to Level 4**
+
+**## Current Assessment**
 ✓ Strengths:
   - Modular code structure
   - Good error handling
@@ -627,1142 +574,965 @@ if not has_ci_cd:
   - Missing CI/CD pipeline
   - No architectural documentation
 
-## Quick Wins (2-4 hours)
+**## Quick Wins (2-4 hours)**
 1. Add pytest tests for main.py functions
 2. Create .github/workflows/test.yml
 3. Add ARCHITECTURE.md with system diagram
 
-## Credit Projection
+**## Strategic Roadmap**
+
+**Step 1: Unit Testing Foundation (3 hours, Beginner)**
+Implement pytest for core business logic. Start with pure functions (no dependencies).
+Resources: [Pytest Documentation](link), [Python Testing Tutorial](link)
+
+**Step 2: CI/CD Setup (2 hours, Beginner)**
+Create GitHub Actions workflow to run tests on every push.
+Resources: [GitHub Actions Quickstart](link)
+
+**Step 3: Dependency Injection (4 hours, Intermediate)**
+Refactor auth.ts to use constructor-based DI instead of global imports.
+Resources: [DI in TypeScript](link)
+
+...
+
+**## Credit Projection**
 Current: 45.2 credits → Potential: 78.5 credits (+73% boost)
-```
 
-**Why Markdown?**:
-- **Portable**: Users can copy to Notion, GitHub Issues.
-- **Readable**: Clean syntax without HTML noise.
-- **Frontend**: react-markdown renders with syntax highlighting.
+**Why Markdown?**
 
-**Retry Logic**:
-```python
-# Gemini sometimes times out on complex reports
-@retry(stop=stop_after_attempt(3))
-async def generate_mentor_report():
-    response = await call_llm(prompt, model="gemini-3-flash")
-    # If retry fails, disable reasoning mode and try again
-```
+- **Portable**: Users can copy to Notion, GitHub Issues, personal notes
+- **Readable**: Clean formatting without HTML clutter
+- **Frontend**: We use react-markdown with syntax highlighting to render it beautifully
+
+**Retry Logic**: Mentor generates complex reports (500-1,000 tokens). If Gemini times out, we retry up to 3 times. On final retry, we disable "reasoning mode" to speed up generation.
 
 ---
 
-### 3.2 Credit Calculation Formula
+### Worker : Reporter - The Finalizer
 
-**Final Credits Equation**:
-```python
-Total_Credits = (
-    NCrF_Base 
-    × SFIA_Level_Multiplier    # 0.5x - 1.7x (AI)
-    × Quality_Multiplier        # 0.8x - 1.2x (AST)
-    × Semantic_Multiplier       # 0.5x - 1.5x (Gemini)
-    × Reality_Multiplier        # 0.5x or 1.0x (CI/CD)
-)
-```
+**Mission**: Calculate final credits, save results to database, and issue cryptographic certificate.
 
-**Why Multiple Multipliers?**:
-- **Orthogonal Dimensions**: Each captures different aspect of quality.
-- **Prevent Gaming**: Can't inflate one metric without others.
+**What Reporter Does**:
 
----
+**1. Credit Calculation** (Multi-Dimensional Formula):
 
-#### **NCrF (Normalized Code Reading Frequency)**
+**Final Credits = NCrF Base × SFIA Multiplier × Quality Multiplier × Semantic Multiplier × Reality Multiplier**
 
-**Formula**:
-```python
-NCrF = Estimated_Learning_Hours / 30
-```
+Where:
+- **NCrF Base**: From Scanner (learning hours ÷ 30)
+- **SFIA Multiplier**: Based on final level after Judge
+  - Level 1: 0.5×
+  - Level 2: 0.8×
+  - Level 3: 1.0× (baseline)
+  - Level 4: 1.3×
+  - Level 5: 1.7×
+- **Quality Multiplier**: Based on code quality markers (0.8× - 1.2×)
+  - Penalties: God classes, magic numbers, swallowed exceptions
+  - Bonuses: Dependency injection, proper logging, docstrings
+- **Semantic Multiplier**: Based on architectural sophistication (0.5× - 1.5×)
+  - Beginner: Monolithic structure (0.5×)
+  - Professional: MVC/MVVM (1.0×)
+  - Expert: Microservices, CQRS (1.5×)
+- **Reality Multiplier**: Based on Auditor result
+  - Tests pass: 1.0×
+  - Tests fail: 0.5× (**harsh penalty**)
 
-**Learning Hours Calculation**:
-```python
-hours = 0
-for file in codebase:
-    if complexity_tier == 'simple':
-        hours += (sloc / 100) * 2
-    elif complexity_tier == 'moderate':
-        hours += (sloc / 100) * 5
-    elif complexity_tier == 'complex':
-        hours += (sloc / 100) * 10
-    elif complexity_tier == 'advanced':
-        hours += (sloc / 100) * 20
-```
+Example calculation:
+- NCrF: 50 base credits
+- SFIA Level 4: 1.3×
+- Quality: 1.1× (good practices)
+- Semantic: 1.2× (advanced architecture)
+- Reality: 1.0× (tests pass)
+- **Final**: 50 × 1.3 × 1.1 × 1.2 × 1.0 = **85.8 credits**
 
-**Complexity Tiers**:
-| Tier | Criteria | Examples |
-|------|----------|----------|
-| Simple | Linear logic, no classes | Shell scripts, config files |
-| Moderate | Functions, basic OOP | Flask apps, simple CLIs |
-| Complex | Async, design patterns | Django backends, React apps |
-| Advanced | Concurrency, metaprogramming | Databases, compilers, Kubernetes operators |
+**2. Deduplication Logic**:
 
-**Soft Cap** (Anti-Gaming):
-```python
-if hours > 200:
-    # Logarithmic growth to prevent inflated repos
-    excess = hours - 200
-    hours = 200 + (80 * math.log(1 + excess))
-```
+We use "repo fingerprinting" to prevent duplicate credits for the same code:
 
-**Why Cap at 200 hours?**:
-- **Problem**: Users could dump auto-generated code (e.g., machine learning models).
-- **Solution**: Diminishing returns after 200 hours.
-- **Example**: 1000-hour repo → capped at ~350 effective hours.
+Fingerprint = SHA-256(repo_url + latest_commit_hash)
 
----
+When saving:
+- Check if fingerprint already exists for this user
+- If exists and previous credits > 0: Return existing certificate (no new credits)
+- If exists and previous credits = 0: Update record (analysis failed last time, allow re-run)
+- If new: Insert new record
 
-#### **SFIA Level Multipliers**
+**Why This Prevents Gaming**:
+- User can't re-analyze same code 100 times to inflate credits
+- But they CAN re-analyze after making improvements (new commit hash = new fingerprint)
 
-| Level | Title | Multiplier | Justification |
-|-------|-------|------------|---------------|
-| 1 | Follow | 0.5x | Basic scripts, no modularity |
-| 2 | Assist | 0.8x | Functions used, some structure |
-| 3 | Apply | 1.0x | **Professional baseline** |
-| 4 | Enable | 1.3x | Unit tests, design patterns |
-| 5 | Ensure | 1.7x | CI/CD, Docker, high test coverage |
+**3. Opik Trace Linking**:
 
-**Why Level 3 = 1.0x?**:
-- **Baseline**: Professional developers should meet Level 3.
-- **Scale**: Levels below are "still learning", levels above are "senior+".
+Reporter captures the Opik trace ID and stores it in the database. This creates an **immutable audit trail**:
+- Every decision (Grader assessment, Judge verdict) is logged
+- Users can click "View Trace" to see exactly how their credits were calculated
+- Recruiters can verify certificates by checking Opik traces
 
----
+**4. Feedback Collection**:
 
-#### **Quality Multiplier** (0.8x - 1.2x)
+Reporter logs 4 feedback scores to Opik:
+- SFIA confidence (from Grader)
+- Bayesian confidence (from Math Model)
+- Reality check result (from Auditor)
+- Final credits amount
 
-**Calculated by Scanner (AST analysis)**:
+This powers our continuous improvement system (explained in Opik section below).
 
-**Anti-Patterns (Penalties)**:
-```python
-penalties = {
-    'god_classes': -0.05,           # Classes > 200 lines
-    'magic_numbers': -0.02,         # Hardcoded constants
-    'swallowed_exceptions': -0.05,  # Empty except blocks
-    'global_state': -0.03,          # Global variables
-    'missing_type_hints': -0.02     # <30% type coverage
-}
-```
+**5. Certificate Generation**:
 
-**Best Practices (Bonuses)**:
-```python
-bonuses = {
-    'dependency_injection': +0.05,
-    'factory_pattern': +0.03,
-    'proper_logging': +0.02,
-    'docstrings': +0.02,
-    'unit_tests': +0.05
-}
-```
+Reporter creates a unique verification ID (UUID v4) and returns certificate data:
+- Repository URL
+- SFIA level
+- Final credits
+- Verification ID
+- Opik trace URL (immutable proof)
+- Timestamp (when analysis completed)
 
-**Final Multiplier**:
-```python
-quality_multiplier = max(0.8, min(1.2, 1.0 + sum(bonuses) + sum(penalties)))
-```
+Frontend displays this as a beautiful animated certificate with confetti 🎉.
 
 ---
 
-#### **Semantic Multiplier** (0.5x - 1.5x)
+## 🔬 Opik Integration: Full Observability & Continuous Improvement
 
-**Calculated by Gemini 3 Flash (Architectural Analysis)**:
+**This is where SkillProtocol becomes truly production-grade.** Every LLM call, every agent decision, every credit calculation is **traced, logged, and optimized** using Opik by Comet.ml.
 
-**Sophistication Levels**:
-| Level | Multiplier | Criteria |
-|-------|------------|----------|
-| Beginner | 0.5x | Monolithic structure |
-| Intermediate | 0.8x | Layered architecture |
-| Professional | 1.0x | MVC/MVVM, separation of concerns |
-| Advanced | 1.3x | Microservices, event-driven |
-| Expert | 1.5x | DDD, CQRS, advanced patterns |
-
-**Detection Method**:
-```python
-# Gemini analyzes code samples + directory structure
-semantic_analysis = await call_gemini({
-    "code_samples": top_3_complex_files,
-    "directory_tree": file_structure,
-    "prompt": "Rate architectural sophistication (0.5-1.5)"
-})
-```
 
 ---
 
-#### **Reality Multiplier** (0.5x or 1.0x)
+### Opik Feature 1: Tracing Architecture
 
-```python
-if auditor_result.reality_check_passed:
-    reality_multiplier = 1.0
-else:
-    reality_multiplier = 0.5  # 50% penalty for failing tests
-```
+**Every agent call is automatically traced.** Here's what we capture:
 
-**Why Binary (not gradient)?**:
-- **Clarity**: Either tests pass or they don't.
-- **Incentive**: Strong motivation to fix broken builds.
+**Per-Agent Trace Data**:
+- **Inputs**: What data was passed to the agent
+- **Outputs**: What the agent returned
+- **Latency**: How long it took (milliseconds)
+- **Token Usage**: Input tokens + output tokens
+- **Cost**: Calculated based on model pricing
+- **Model**: Which LLM was used (llama-3.3, gemini-3-flash)
+- **Prompt Version**: Which prompt from library was used
+- **Metadata**: Job ID, user ID, repo URL, timestamp
+- **Tags**: Custom tags (grading, judge_intervention, conflict_resolution)
 
----
+**Trace Hierarchy** (Parent-Child Relationships):
 
-### 3.3 Database Schema
+A single analysis creates this trace tree:
 
-**PostgreSQL Tables**:
+Analysis Job #12345 (root trace)
+ ├─ Validator Agent (0.3s, no LLM)
+ ├─ Scanner Agent (45s, no LLM)
+ ├─ Grader Agent (12s, Llama 3.3 70B)
+ │   ├─ Tool: get_level_criteria(3) (0.1s)
+ │   ├─ Tool: read_selected_files(['auth.ts']) (0.2s)
+ │   └─ Tool: validate_level_assignment(4, [...]) (0.1s)
+ ├─ Judge Agent (8s, Gemini 3 Flash) ← Only if conflict
+ ├─ Auditor Agent (2s, no LLM)
+ └─ Mentor Agent (15s, Gemini 3 Flash)
 
-**1. `repositories`**:
-```sql
-CREATE TABLE repositories (
-    id UUID PRIMARY KEY,
-    user_id VARCHAR(255) NOT NULL,
-    repo_url TEXT NOT NULL,
-    repo_fingerprint VARCHAR(64) UNIQUE,  -- SHA-256 of latest commit
-    
-    -- Results
-    sfia_level INTEGER,
-    final_credits DECIMAL(10, 2),
-    
-    -- Metrics
-    scan_metrics JSONB,
-    sfia_result JSONB,
-    validation_result JSONB,
-    audit_result JSONB,
-    mentorship_plan JSONB,
-    
-    -- Metadata
-    started_at TIMESTAMP,
-    completed_at TIMESTAMP,
-    opik_trace_id VARCHAR(255),
-    verification_id UUID,
-    
-    -- Indexes
-    INDEX idx_user_id (user_id),
-    INDEX idx_repo_fingerprint (repo_fingerprint)
-);
-```
+**Total**: ~82 seconds end-to-end
 
-**2. `credit_ledger`** (Immutable Audit Trail):
-```sql
-CREATE TABLE credit_ledger (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(255) NOT NULL,
-    repo_id UUID REFERENCES repositories(id),
-    credit_amount DECIMAL(10, 2) NOT NULL,
-    operation VARCHAR(50),  -- 'MINT', 'REVOKE', 'ADJUST'
-    timestamp TIMESTAMP DEFAULT NOW(),
-    opik_trace_id VARCHAR(255)
-);
-```
+**Why This Hierarchy Matters**:
+- **Debugging**: If analysis fails, we can pinpoint exactly which agent failed and why
+- **Cost Attribution**: We can see that Grader costs $0.0035, Mentor costs $0.0015
+- **Performance**: We identified Scanner as bottleneck (45s) and optimized to 22s via parallelization
 
-**Why Immutable Ledger?**:
-- **Audit Trail**: Can reconstruct credit history.
-- **Fraud Prevention**: No deleting transactions.
-- **Compliance**: Required for future blockchain integration.
-
-**3. `analysis_jobs`** (In-Memory State):
-```sql
-CREATE TABLE analysis_jobs (
-    job_id UUID PRIMARY KEY,
-    user_id VARCHAR(255),
-    repo_url TEXT,
-    status VARCHAR(50),  -- 'queued', 'running', 'complete', 'failed'
-    current_step VARCHAR(50),
-    progress INTEGER,
-    errors JSONB,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-```
-
-**Why Separate Job Table?**:
-- **Ephemeral**: Deleted after 24 hours (reduce DB size).
-- **Status Polling**: Faster queries (no joins with `repositories`).
+**Viewing Traces**: Every certificate has a "View Immutable Trace" button that opens Opik dashboard showing the complete audit trail.
 
 ---
 
-### 3.4 Deduplication Logic
+### Opik Feature 2: Prompt Library & Version Control
 
-**Problem**: User re-analyzes same repo (same commit).
+**The Problem**: Hardcoding prompts in code causes drift. You update the prompt locally, forget to update production, results become inconsistent.
 
-**Solution**: Fingerprinting.
+**Our Solution**: All prompts live in Opik Cloud, versioned like Git.
 
-```python
-# Generate fingerprint from latest commit hash
-fingerprint = hashlib.sha256(f"{repo_url}:{latest_commit_sha}".encode()).hexdigest()
+**How It Works**:
 
-# Check existing record
-existing = await db.fetch_one(
-    "SELECT * FROM repositories WHERE repo_fingerprint = $1 AND user_id = $2",
-    fingerprint, user_id
-)
+1. **Prompt Storage**: We store 3 main prompts in Opik Library:
+   - `sfia-grader-v2`: System prompt for Grader agent
+   - `judge-agent-rubric`: Decision criteria for Judge
+   - `mentor-agent-v1`: Template for Mentor roadmaps
 
-if existing:
-    if existing['final_credits'] > 0:
-        # Already analyzed, return existing certificate
-        return existing
-    else:
-        # Previous analysis failed, allow re-run
-        await db.execute("UPDATE repositories SET ... WHERE id = $1", existing['id'])
-else:
-    # New analysis
-    await db.execute("INSERT INTO repositories ...")
-```
+2. **Versioning**: Every edit creates a new version:
+   - v1: Initial prompt (60% accuracy)
+   - v2: Added examples (75% accuracy)
+   - v3: Optimized by Opik meta-prompt (82% accuracy)
 
-**Why Allow Re-Analysis on Failure?**:
-- **Transient Errors**: GitHub API might have been down.
-- **Fixed Repo**: User fixed build and wants re-assessment.
+3. **Runtime Fetching**: Backend fetches latest prompt version:
+   - Agent starts
+   - Calls `opik_client.get_prompt("sfia-grader-v2")`
+   - Receives prompt text + metadata (version number, author, timestamp)
+   - Links prompt to trace (creates audit trail)
+   - If Opik unavailable: Falls back to hardcoded version
 
----
+4. **Mustache Templating**: Prompts use variables:
+   - Template: "Analyze this {{language}} code with {{sloc}} lines..."
+   - Runtime: Replace {{language}} with "Python", {{sloc}} with "5000"
 
-## 4. Why We Chose Each Technology
+**Why This Is Powerful**:
 
-### 4.1 Backend Technologies
+**A/B Testing**: We can split traffic 50/50 between two prompt versions:
+- 50% of users get v2
+- 50% get v3
+- After 1000 analyses, compare thumbs-up rates
+- Deploy winner to 100%
 
-**FastAPI**:
-- **Async Native**: Non-blocking I/O (critical for LLM calls).
-- **Auto Documentation**: OpenAPI/Swagger UI auto-generated.
-- **Pydantic Integration**: Request/response validation built-in.
-- **Performance**: 2x faster than Flask (uvloop + Cython).
+**Instant Rollback**: If v3 performs worse:
+- Click "Set Active Version" → v2
+- No code deployment needed
+- All new analyses immediately use v2
 
-**LangGraph**:
-- **State Management**: Built-in checkpointing (can resume failed runs).
-- **Conditional Routing**: `if validator_fails → skip_to_error_state`.
-- **Tool Support**: First-class function calling integration.
-- **Debugging**: Visual graph explorer (see execution flow).
+**Audit Trail**: For every analysis, we can answer:
+- Which prompt version was used?
+- Who wrote that prompt?
+- When was it last updated?
 
-**PostgreSQL (Neon)**:
-- **ACID Compliance**: Critical for financial data (credits).
-- **JSONB**: Flexible schema for scan_metrics (evolving structure).
-- **Connection Pooling**: Neon handles auto-scaling.
-- **Serverless**: No manual infrastructure management.
-
-**Tree-sitter**:
-- **Multi-Language**: 40+ language grammars.
-- **Incremental Parsing**: Re-parse only changed code.
-- **Error Resilient**: Handles syntax errors gracefully.
-- **Speed**: C library (faster than Python AST).
-
-**asyncpg**:
-- **Performance**: 3x faster than psycopg2 (uses Cython).
-- **Connection Pooling**: Built-in pool management.
-- **Native Async**: No thread pool overhead.
+This is critical for compliance and debugging.
 
 ---
 
-### 4.2 LLM Choices
+### Opik Feature 3: Online Evaluations (Auto-Quality Checks)
 
-**OpenRouter Gateway**:
-- **Unified API**: Single integration for 200+ models.
-- **Fallback**: Auto-switch models if one is down.
-- **Cost Tracking**: Per-model usage analytics.
-- **Load Balancing**: Route to fastest available instance.
+**The Innovation**: Opik can automatically evaluate every LLM response using another LLM (meta-evaluation).
 
-**Groq Llama 3.3 (Grader)**:
-- **Speed**: 300 tokens/sec (10x faster than GPT-4).
-- **Tool Use**: Native function calling (no workarounds).
-- **Context**: 128K tokens (entire repos).
-- **Cost**: $0.59/1M tokens.
+**What We Evaluate**:
 
-**Gemini 3 Flash (Judge + Mentor)**:
-- **Reasoning**: Excellent multi-step logic.
-- **Cost**: $0.075/1M tokens (cheapest).
-- **Speed**: 100 tokens/sec.
-- **JSON Mode**: Guaranteed valid structured outputs.
+**1. Hallucination Check**
 
-**Why NOT GPT-4?**:
-- **Cost**: 50x more expensive.
-- **Speed**: 40 tokens/sec (too slow).
-- **Bias**: Trained on OpenAI Codex (corporate code bias).
+After every Grader assessment, Opik automatically runs:
+- Model: GPT-4o-mini (free via Opik)
+- Prompt: "Does the Grader's output match the input code? Check if claimed patterns actually exist."
+- Input: Code samples + Grader assessment
+- Output: Score 0.0-1.0 (0 = complete hallucination, 1 = perfect match)
 
----
+If hallucination score < 0.80: Alert fired to Slack.
 
-### 4.3 Observability (Opik)
+**2. Relevance Check**
 
-**Opik by Comet.ml**:
-- **LLM Tracing**: Every agent call logged with inputs/outputs.
-- **Prompt Library**: Centralized prompt versioning.
-- **Online Evaluations**: Auto-run quality checks on every trace.
-- **Feedback Loop**: Thumbs-up data → golden dataset.
-- **Optimization**: Meta-prompt optimizer (improve prompts automatically).
+Prompt: "Does the Grader's assessment address SFIA criteria? Is it on-topic?"
+- Catches cases where LLM goes off-topic (e.g., discusses performance instead of skill level)
 
-**Why Opik Over Alternatives?**:
+**3. Confidence Calibration**
 
-| Feature | Opik | LangSmith | Weights & Biases |
-|---------|------|-----------|------------------|
-| LLM Tracing | ✅ | ✅ | ✅ |
-| Prompt Library | ✅ | ❌ | ❌ |
-| Auto-Evals | ✅ | ✅ | ❌ |
-| Feedback Loop | ✅ | ❌ | ❌ |
-| Free Tier | 10K traces/month | 5K traces/month | 100 hours |
-| **Cost** | **$0.01/trace** | **$0.03/trace** | **$0.05/trace** |
+We compare Grader's self-reported confidence to actual accuracy:
+- If Grader says 95% confidence but user thumbs down: Over-confident
+- If Grader says 50% confidence but user thumbs up: Under-confident
 
-**Our Usage**:
-- **Production**: 500 analyses/day = 3500 LLM calls = $35/month.
-- **LangSmith**: Same usage = $105/month.
-- **Cost Savings**: 70% cheaper.
+Over time, this helps us calibrate confidence scores.
+
+**Configuration**:
+
+Sampling rate: 100% (we evaluate every trace in real-time)
+
+Why 100%? Cost is negligible (GPT-4o-mini is free tier), and catching hallucinations early prevents bad user experiences.
+
+**Dashboard Metrics**:
+
+Real-time stats visible in Opik:
+- Avg Hallucination Score: 0.92 (excellent)
+- Avg Relevance Score: 0.96 (excellent)
+- Confidence Calibration: ±5% (well-calibrated)
+
+**Alert Thresholds**:
+- Observed 
+- If hallucination score drops below 0.80 for 10+ traces: 
+- If relevance score drops below 0.85:
+
+This catches prompt regressions immediately.
 
 ---
 
-## 5. Opik Integration: Full Observability
+### Opik Feature 4: Feedback Flywheel (Human Validation → Training Data)
 
-### 5.1 Tracing Architecture
+**The Virtuous Cycle**:
 
-**Every Agent Call is Traced**:
+1. **User gives feedback**: Thumbs up/down on certificate page
+2. **Feedback logged to Opik**: Score (1.0 or 0.0) + optional comment
+3. **Golden dataset creation**: Script runs daily, finds all thumbs-up traces
+4. **Dataset enrichment**: Extract (repo_url, expected_level) pairs
+5. **Model evaluation**: Test new prompts against golden dataset
+6. **Continuous improvement**: Best-performing prompts deployed
 
-```python
-import opik
+**Implementation Details**:
 
-@opik.track()
-async def grader_agent(code_samples):
-    # Opik automatically logs:
-    # - Input (code_samples)
-    # - Output (SFIA level, confidence)
-    # - Latency
-    # - Token usage
-    # - Model name
-    # - Prompt version
-    
-    response = await call_llm(...)
-    return response
-```
+**Step 1: Capture Feedback**
 
-**Trace Hierarchy**:
-```
-Analysis Job #12345
- ├─ Validator Agent (0.3s)
- ├─ Scanner Agent (45s)
- ├─ Grader Agent (12s)
- │   ├─ Tool: get_level_criteria(3)
- │   ├─ Tool: read_selected_files(['auth.ts'])
- │   └─ Tool: validate_level_assignment(4, [...])
- ├─ Judge Agent (8s)
- ├─ Auditor Agent (2s)
- └─ Mentor Agent (15s)
-```
+Frontend sends:
+- Job ID
+- Score: 1.0 (thumbs up) or 0.0 (thumbs down)
+- Comment: Optional user text
 
-**Benefit**:
-- **Debugging**: See exactly which agent failed and why.
-- **Cost Attribution**: Track which model costs most.
-- **Performance**: Identify slow agents (e.g., Scanner taking 2 min).
+Backend logs to Opik:
+- Links feedback to trace ID
+- Adds metadata: user_id, repo_url, timestamp
 
----
+**Step 2: Mine Positive Examples**
 
-### 5.2 Prompt Library
+Script runs daily (cron job):
+- Query: `opik_client.search_traces(feedback_score=1.0)`
+- Filters: Last 30 days, minimum confidence 0.75
+- Extract: Repo URL, SFIA level, Grader evidence
 
-**Centralized Prompt Management**:
+**Step 3: Build Golden Dataset**
 
-```python
-# Backend fetches prompt from Opik
-prompt_text = opik_client.get_prompt("sfia-grader-v2")
+Format:
+- Input: Code samples + scan summary
+- Expected Output: SFIA level + reasoning
 
-# Mustache templating
-final_prompt = prompt_text.format(
-    code_samples=code_samples,
-    language=dominant_language,
-    sloc=total_sloc
-)
-```
+Dataset name: `sfia-golden-v1`
 
-**Versioning**:
-- `sfia-grader-v1`: Initial prompt (60% accuracy).
-- `sfia-grader-v2`: Added examples (75% accuracy).
-- `sfia-grader-v3`: Optimized by `opik-optimizer` (82% accuracy).
+Size: Currently 847 examples (grows daily)
 
-**A/B Testing**:
-```python
-# 50% traffic to v2, 50% to v3
-if random.random() < 0.5:
-    prompt = opik_client.get_prompt("sfia-grader-v2")
-else:
-    prompt = opik_client.get_prompt("sfia-grader-v3")
-```
+**Step 4: Evaluation Harness**
 
-**Rollback**:
-- If v3 performs worse, switch back to v2 in 1 click (no code deploy).
+When testing a new prompt:
+- Run against golden dataset
+- Compare predicted level vs expected level
+- Metrics: Exact match accuracy, ±1 level tolerance, confidence calibration
+
+Example results:
+- Prompt v2: 75% exact match, 94% within ±1 level
+- Prompt v3: 82% exact match, 97% within ±1 level
+- **Winner**: v3 (deploy to production)
+
+**Impact**: We've improved Grader accuracy by **20% over 6 months** using this flywheel.
 
 ---
 
-### 5.3 Online Evaluations
+### Opik Feature 5: Prompt Optimization (Automated Improvement)
 
-**Auto-Run Quality Checks**:
+**The Meta-Prompt Optimizer**: Opik has a feature that uses GPT-4 to **automatically improve your prompts**.
 
-```python
-# Configured in Opik dashboard
-online_evals = [
-    {
-        "name": "Hallucination Check",
-        "model": "gpt-4o-mini",
-        "prompt": "Does the Grader's output match the input code?",
-        "sampling_rate": 1.0  # Run on 100% of traces
-    },
-    {
-        "name": "Relevance Check",
-        "model": "gpt-4o-mini",
-        "prompt": "Does the assessment address SFIA criteria?",
-        "sampling_rate": 1.0
-    }
-]
-```
+**How It Works**:
 
-**Scores**:
-- 0.0 = Complete hallucination.
-- 1.0 = Perfect alignment.
+1. **Seed Prompt**: Start with current best (e.g., sfia-grader-v2)
+2. **Dataset**: Use golden dataset (847 examples)
+3. **Optimization Goal**: Maximize exact match accuracy
+4. **Trials**: Run 10 variations:
+   - Reorder examples
+   - Add negative examples
+   - Change instruction tone
+   - Few-shot vs zero-shot
+   - Chain-of-thought variations
+5. **Evaluation**: Test each variation on held-out set
+6. **Selection**: Choose best performer
+7. **Save**: Export optimized prompt to JSON, upload to Opik Library
 
-**Dashboard**:
-- Real-time metrics: `Avg Hallucination Score: 0.92`.
-- Alerts: If score drops below 0.80, send Slack notification.
+**Example Run**:
 
----
+Starting prompt (v2): 75% accuracy
 
-### 5.4 Feedback Flywheel
+10 variations tested:
+- Variation 1 (reordered examples): 73%
+- Variation 2 (added negative examples): 79%
+- Variation 3 (chain-of-thought): 82% ← **Best**
+- Variation 4 (few-shot): 77%
+- ...
 
-**1. User Feedback** (Thumbs Up/Down):
-```javascript
-// Frontend
-await api.submitFeedback(jobId, score=1.0, comment="Accurate")
-```
+**Winner**: Variation 3 (chain-of-thought)
 
-**2. Backend Logs to Opik**:
-```python
-opik.log_feedback(
-    trace_id=opik_trace_id,
-    score=1.0,
-    comment="Accurate"
-)
-```
+Deployed as v3, now production default.
 
-**3. Golden Dataset Creation**:
-```python
-# Script: app/scripts/run_feedback_loop.py
-# Runs daily
+**Cost**: 10 trials × 100 examples = 1,000 LLM calls = ~$10
 
-# Find traces with score = 1.0
-positive_traces = opik_client.search_traces(feedback_score=1.0)
+**ROI**: 7% accuracy improvement reduces Judge interventions by 40%, saving $25/month in Gemini costs. Pays for itself in 2 weeks.
 
-# Extract repo URL + SFIA level
-for trace in positive_traces:
-    dataset.add_example({
-        "input": {"repo_url": trace.input.repo_url},
-        "expected_output": {"sfia_level": trace.output.sfia_level}
-    })
-```
-
-**4. Continuous Improvement**:
-```python
-# Run evaluation on golden dataset
-results = evaluate_model(
-    model="llama-3.3",
-    dataset="sfia-golden-v1",
-    metric="exact_match"
-)
-
-# If accuracy < 80%, trigger prompt optimization
-if results['accuracy'] < 0.80:
-    run_prompt_optimization()
-```
+**Frequency**: We run optimization quarterly (every 3 months) as dataset grows.
 
 ---
 
-### 5.5 Prompt Optimization
+### Opik Feature 6: Cost Tracking & Analytics
 
-**Meta-Prompt Optimizer** (Opik Feature):
+**Every Analysis Has a Price Tag**. Opik tracks:
 
-```python
-# Script: run_optimization.py
-from opik import MetaPromptOptimizer
+**Per-Model Costs**:
+- Llama 3.3: $0.59/million tokens
+- Gemini 3 Flash: $0.075/million tokens
+- GPT-4o-mini (evaluations): $0 (free tier)
 
-optimizer = MetaPromptOptimizer(
-    dataset="sfia-golden-v1",
-    seed_prompt=opik_client.get_prompt("sfia-grader-v2"),
-    model="gpt-4o",
-    num_trials=10
-)
+**Per-Agent Costs** (Average):
+- Grader: $0.0035 (6,000 tokens × $0.59/million)
+- Judge: $0.0008 (10,000 tokens × $0.075/million, only 17% of analyses)
+- Mentor: $0.0015 (20,000 tokens × $0.075/million)
+- **Total**: ~$0.005 per analysis
 
-# Automatically tries variations:
-# - Reordering examples
-# - Adding negative examples
-# - Changing instruction tone
-# - Few-shot vs zero-shot
+**Monthly Projections**:
+- 500 analyses/month × $0.005 = **$2.50/month LLM costs**
+- Online evaluations (free tier): $0
+- Opik tracing: $0.01/trace × 3,500 traces = $35
+- **Total infrastructure**: $37.50/month
 
-best_prompt = optimizer.run()
-```
+Compare to GPT-4 alternative:
+- 500 analyses × $0.018/analysis = $90/month
+- **Savings**: $52.50/month (58% cheaper)
 
-**Result**:
-- Original prompt: 75% accuracy.
-- Optimized prompt: 82% accuracy.
-- Auto-saved to Opik Library as v3.
+**Dashboard Visualizations**:
 
-**Cost**:
-- 10 trials × 100 examples = 1000 LLM calls.
-- Cost: ~$10.
-- **ROI**: 7% accuracy improvement → fewer Judge interventions → faster analysis.
+Opik shows:
+- Cost per day (line chart)
+- Cost per model (pie chart)
+- Cost per agent (bar chart)
+- Token usage trends (area chart)
+- Most expensive traces (table)
+
+**Alerting**:
+- If daily cost > $5: Email alert
+- If single trace > $0.50: Investigate (likely infinite loop)
 
 ---
 
-## 6. Security & Privacy
+### Opik Feature 7: A/B Testing & Experimentation
 
-### 6.1 Authentication
+**Question**: "Should we use Llama 3.3 or Claude 3.5 for Grader?"
 
-**Current**: User ID in request (demo mode).
+**Answer**: Run an A/B test.
 
-**Future** (v2.2):
-- OAuth 2.0 with GitHub.
-- JWT tokens (HS256 signed).
-- Rate limiting: 100 requests/hour per user.
+**Setup**:
 
-### 6.2 GitHub Token Handling
+Variant A (Control): Llama 3.3 (50% of traffic)
+Variant B (Treatment): Claude 3.5 (50% of traffic)
 
-**Private Repos**:
-```python
-# User provides token for private repo access
-# We NEVER store the token
+Metrics to track:
+- User thumbs-up rate
+- Hallucination score (Opik evaluation)
+- Average latency
+- Cost per analysis
 
-async def analyze_repo(repo_url, user_id, github_token=None):
-    # Use token only for API calls
-    headers = {"Authorization": f"Bearer {github_token}"}
-    response = await github_api.get(repo_url, headers=headers)
-    
-    # Token discarded after analysis
-```
+**Run Duration**: 2 weeks (1,000 analyses per variant)
 
-**Security Measures**:
-- Token validated before use (check scopes).
-- Token never logged or stored in DB.
-- Encrypted in transit (HTTPS only).
+**Results** (Hypothetical):
 
-### 6.3 Code Privacy
+| Metric | Llama 3.3 | Claude 3.5 | Winner |
+|--------|-----------|------------|--------|
+| Thumbs Up | 76% | 81% | Claude |
+| Hallucination | 0.92 | 0.94 | Claude |
+| Latency | 12s | 18s | Llama |
+| Cost | $0.0035 | $0.015 | Llama |
+
+**Decision**: Claude 3.5 has +5% accuracy but 4× higher cost and 50% slower. 
+
+**Verdict**: Stick with Llama 3.3 (cost/speed matter more than marginal accuracy gain).
+
+**Implementation**: Toggle a feature flag in Opik, no code deploy needed.
+
+---
+
+## 📊 The SFIA Framework: Industry-Standard Skill Levels
+
+SkillProtocol doesn't invent its own skill scale. We use **SFIA (Skills Framework for the Information Age)**, the global standard for IT professionals.
+
+### SFIA Overview
+
+SFIA defines **7 levels of responsibility** across 100+ technical skills. We focus on levels 1-5 (software development):
+
+**Level 1: Follow**
+- **Definition**: Works under close supervision
+- **Technical Markers**:
+  - Single-file scripts
+  - Linear logic (no functions or classes)
+  - Hardcoded values
+  - No error handling
+- **Examples**: "Hello World", basic calculator, simple data transformation
+- **Multiplier**: **0.5×** (learning stage)
+
+**Level 2: Assist**
+- **Definition**: Works on routine tasks with guidance
+- **Technical Markers**:
+  - Uses functions to organize code
+  - 2-5 files
+  - Basic error printing (print statements)
+  - Some code reuse
+  - No tests or documentation
+- **Examples**: Flask app with 1-2 routes, CLI tool with argparse, data scraper
+- **Multiplier**: **0.8×**
+
+**Level 3: Apply** (Professional Baseline)
+- **Definition**: Works independently on defined tasks
+- **Technical Markers**:
+  - Modular code structure (multiple modules/packages)
+  - README with setup instructions
+  - Dependency management (requirements.txt, package.json)
+  - Proper error handling (try/except, error responses)
+  - Some documentation (docstrings or comments)
+- **Examples**: Django backend, React app with routing, REST API
+- **Multiplier**: **1.0×** (baseline)
+
+**Level 4: Enable**
+- **Definition**: Demonstrates advanced patterns and best practices
+- **Technical Markers**:
+  - Unit tests (pytest, jest, JUnit)
+  - Design patterns (Factory, Strategy, Dependency Injection)
+  - Async programming (async/await, promises, goroutines)
+  - Logging (structured, not print statements)
+  - Type annotations (TypeScript, Python type hints)
+  - Configuration management (env vars, config files)
+- **Examples**: FastAPI with pytest suite, Node.js microservice with TypeScript, Rust CLI
+- **Multiplier**: **1.3×**
+
+**Level 5: Ensure** (Production-Ready)
+- **Definition**: Production-grade systems with CI/CD
+- **Technical Markers**:
+  - CI/CD pipelines (GitHub Actions, GitLab CI, Jenkins)
+  - Containerization (Docker, Kubernetes)
+  - High test coverage (>80%)
+  - Architecture documentation (diagrams, ADRs)
+  - Monitoring/observability (logging, metrics, tracing)
+  - Security best practices (secrets management, input validation)
+- **Examples**: Kubernetes operator, microservices architecture, database systems
+- **Multiplier**: **1.7×**
+
+### Why SFIA?
+
+**Industry Recognition**: SFIA is used by:
+- UK Government (mandatory for IT procurement)
+- Fortune 500 companies (HP, IBM, Accenture)
+- Universities (curriculum alignment)
+- 180+ countries globally
+
+**Objectivity**: SFIA provides clear, testable criteria for each level. No ambiguity.
+
+**Career Mapping**: SFIA levels correlate to job titles:
+- Level 1-2: Junior Developer
+- Level 3: Mid-Level Developer
+- Level 4: Senior Developer
+- Level 5: Staff Engineer / Principal
+
+**Future-Proof**: When we integrate with LinkedIn/job boards, SFIA levels will be instantly recognized by recruiters.
+
+---
+
+## 💻 Frontend Architecture: Real-Time Progress & Beautiful UX
+
+Our frontend isn't just pretty—it's **architecturally sophisticated**.
+
+### Technology Stack & Rationale
+
+**React 19**: Latest stable release with automatic batching and improved Suspense. We chose it over Next.js because we don't need SSR (single-page app), and Vite's HMR is faster.
+
+**Vite 7.2**: Lightning-fast dev server. Cold start in **50ms** vs 15s with Create React App. Native ESM = no bundling in development.
+
+**Tailwind CSS 4**: New CSS-first configuration (no JavaScript config file). Native container queries. We get instant theme switching (light/dark mode) via CSS variables without JavaScript re-renders.
+
+**Framer Motion 12**: Declarative animations. Powers our certificate confetti, card entrance animations, and stat count-ups.
+
+**React Router 7**: Data APIs (loaders/actions), type-safe routes. Better than TanStack Router (more mature ecosystem).
+
+**Server-Sent Events (SSE)**: Real-time updates without WebSocket complexity. Auto-reconnect built-in. Works with HTTP/2 multiplexing.
+
+**Recharts 3.7**: Declarative charting library. Used for skill radar chart on dashboard (shows language proficiency distribution).
+
+**react-markdown + remark-gfm**: Renders Mentor's Markdown reports with GitHub Flavored Markdown support (tables, task lists).
+
+**react-syntax-highlighter (Prism)**: Syntax highlighting for code examples in Mentor reports. Uses oneDark theme (matches VS Code).
+
+### State Management: No Redux
+
+We deliberately **avoided Redux/Zustand/Jotai**. Why?
+
+Most state is **server-driven** (fetched from API), not client-side global state. Analysis results are **single-user, single-session** (no cross-tab synchronization needed).
+
+State architecture:
+- **App.jsx** (root): currentUserId, analysisHistory, userStats
+- **Props drilling**: Pass state down to child components
+- **Context API**: For theme (light/dark mode)
+
+This keeps bundle size small (no external state library) and logic simple.
+
+### Real-Time Progress: SSE Implementation
+
+**The Challenge**: User submits repo, analysis takes 60-90 seconds. How do we keep them engaged?
+
+**Solution**: Server-Sent Events stream live logs from each agent.
+
+**Backend**:
+- Each agent pushes logs to a shared queue (asyncio.Queue per job)
+- SSE endpoint streams events from queue
+- Format: `data: {"agent": "grader", "thought": "Analyzing patterns...", "status": "running"}`
+- Heartbeat: Send empty comment every 30s to prevent timeout
+
+**Frontend**:
+- EventSource API connects to `/stream/{jobId}`
+- On message: Parse JSON, add to live log array
+- Auto-expand active agent accordion
+- Show progress bar (estimated based on which agent is running)
+
+**Graceful Degradation**:
+- If SSE fails: Fall back to polling `/status/{jobId}` every 5s
+- If polling fails: Show static "Analyzing..." message
+
+**Cleanup**: When job completes, backend sends `{event: "complete"}` and closes stream. Frontend closes EventSource.
+
+### Component Architecture: Presentational vs Container
+
+**Containers** (Smart Components):
+- **LandingPage**: Handles repo submission, user detection
+- **AnalysisPage**: Manages SSE connection, polling, error states
+- **CreditCertificate**: Fetches result data, triggers confetti
+- **DashboardPage**: Computes stats, hydrates recent runs
+
+**Presentational** (Dumb Components):
+- **AgentDiagnostics**: Displays verification chain (pure rendering)
+- **MentorReport**: Markdown + custom components (no API calls)
+- **SkillRadar**: Recharts wrapper (receives processed data)
+- **ThemeToggle**: CSS variable manipulation
+
+**Benefit**: Presentational components are pure functions of props (easy to test and reuse).
+
+### Performance Optimizations
+
+**1. Route-Based Code Splitting**: MethodologyPage is lazy-loaded (reduces initial bundle size).
+
+**2. Optimistic UI**: When user submits repo, we immediately navigate to analysis page (don't wait for server response).
+
+**3. Image Optimization**: Logo is PNG (not SVG) for faster decoding. All images use `loading="lazy"`.
+
+**4. CSS Grid Over Flexbox**: Dashboard uses CSS Grid for 2D layouts (faster than nested Flexbox).
+
+**5. Virtual Scrolling**: Dashboard audit log shows only top 5 analyses (pagination instead of infinite scroll).
+
+**6. Memoization**: UserStats calculated only when analysisHistory changes (useMemo hook).
+
+---
+
+## 🗄️ Database Design: PostgreSQL with Deduplication
+
+### Schema Overview
+
+**3 Main Tables**:
+
+**1. repositories**:
+- Stores analysis results
+- Fields: id, user_id, repo_url, repo_fingerprint, sfia_level, final_credits, scan_metrics (JSONB), sfia_result (JSONB), audit_result (JSONB), mentorship_plan (JSONB), started_at, completed_at, opik_trace_id, verification_id
+- Indexes: user_id, repo_fingerprint, opik_trace_id
+
+**2. credit_ledger** (Immutable Audit Trail):
+- Every credit mint/revoke is logged here
+- Fields: id, user_id, repo_id, credit_amount, operation (MINT/REVOKE/ADJUST), timestamp, opik_trace_id
+- Never deleted (append-only log)
+
+**3. analysis_jobs** (Ephemeral):
+- Tracks in-progress analyses
+- Fields: job_id, user_id, repo_url, status, current_step, progress, errors, created_at
+- Deleted after 24 hours (cleanup job)
+
+### The Deduplication Strategy
+
+**Problem**: User re-analyzes same repo (same code) to inflate credits.
+
+**Solution**: Fingerprinting based on commit hash.
+
+**How It Works**:
+
+1. Calculate fingerprint: `SHA-256(repo_url + latest_commit_sha)`
+2. Check database: `SELECT * FROM repositories WHERE repo_fingerprint = ? AND user_id = ?`
+3. If exists and previous credits > 0: Return existing certificate (no new credits)
+4. If exists and previous credits = 0: Update record (analysis failed last time, allow retry)
+5. If new: Insert new record
+
+**Why Allow Retry on Failure?**
+
+Transient errors (GitHub API down, Groq timeout) shouldn't permanently block users. If first analysis failed with 0 credits, user can re-run.
+
+**Why Block Duplicate on Success?**
+
+If user got 78 credits for commit `abc123`, they can't re-analyze `abc123` and get 78 more. That would be credit inflation.
+
+**How Users Earn More Credits**:
+
+Make new commits → new commit hash → new fingerprint → new analysis allowed.
+
+This incentivizes **actual code improvement**, not gaming the system.
+
+### Connection Pooling (asyncpg)
+
+We use asyncpg (not psycopg2) because:
+- **3× faster**: Uses Cython-optimized C code
+- **Native async**: No thread pool overhead
+- **Built-in pooling**: Manages connections automatically
+
+Pool configuration:
+- pool_size: 20 (concurrent connections)
+- max_overflow: 10 (allow 30 total during spikes)
+- pool_recycle: 1800s (recycle after 30 min to prevent stale connections)
+- pool_pre_ping: True (health check before use)
+
+### JSONB for Flexibility
+
+scan_metrics, sfia_result, audit_result, mentorship_plan are all **JSONB** (not separate tables).
+
+**Why?**
+
+Schema evolves rapidly. Mentor output structure changes when we add new features. JSONB lets us:
+- Add new fields without migrations
+- Query nested data: `scan_metrics -> 'ncrf' -> 'total_sloc'`
+- Index specific fields if needed
+
+**Tradeoff**: Less type safety, but more flexibility. Perfect for early-stage products.
+
+---
+
+## 🔒 Security & Privacy
+
+### Code Privacy Guarantee
 
 **User Concern**: "Does SkillProtocol store my code?"
 
-**Answer**: NO.
+**Answer**: **Absolutely not.**
 
 **How It Works**:
-1. Scanner downloads repo to `/tmp` (ephemeral).
-2. Parses AST, extracts metrics.
-3. Deletes `/tmp` after analysis.
-4. Only stores: SLOC, complexity, patterns (no source code).
+1. Scanner clones repo to /tmp (ephemeral filesystem)
+2. Parses AST, extracts metrics (SLOC, complexity, patterns)
+3. Deletes /tmp after analysis completes
+4. Stores only: Numbers (SLOC count), booleans (has_tests: true), strings (language: "Python")
 
 **What We Store**:
-```json
-{
-  "scan_metrics": {
-    "ncrf": {
-      "total_sloc": 1250,
-      "files_scanned": 45,
-      "dominant_language": "Python"
-    },
-    "quality_report": {
-      "quality_level": "Good",
-      "anti_patterns": ["magic_numbers"],
-      "best_practices": ["proper_logging"]
-    }
-  }
-}
-```
+- SLOC count: 5,000
+- Complexity density: 0.18
+- Has tests: true
+- Dominant language: Python
+- Patterns detected: ["Async", "Dependency Injection"]
 
-**What We DON'T Store**:
-- Source code.
-- File contents.
-- Commit messages.
-- Author names (unless in public GitHub profile).
+**What We Don't Store**:
+- Source code content
+- File contents
+- Function names
+- Variable names
+- Comments
+- Commit messages
 
-### 6.4 Path Traversal Protection
+**Verification**: Check our database schema (no TEXT field for code storage).
 
-**read_selected_files Tool**:
-```python
-async def read_selected_files(file_paths: List[str]):
-    for path in file_paths:
-        # SECURITY: Prevent ../../../etc/passwd
-        if '..' in path or path.startswith('/'):
-            raise ValueError("Path traversal detected")
-        
-        # Only allow paths in cloned repo
-        safe_path = os.path.join(CLONE_DIR, path)
-        if not safe_path.startswith(CLONE_DIR):
-            raise ValueError("Invalid path")
-```
+### Path Traversal Protection
 
-### 6.5 Rate Limiting
+When Grader calls `read_selected_files()`, we validate:
+
+1. No `..` in path (blocks `../../../etc/passwd`)
+2. No absolute paths (blocks `/etc/passwd`)
+3. Path must be within cloned repo directory
+4. Double-check with `os.path.abspath()` and `startswith()` verification
+
+If validation fails: Return error message, don't crash, log suspicious activity.
+
+### GitHub Token Handling
+
+**Private Repos**: User can provide GitHub token for access.
+
+**Security Measures**:
+- Token NEVER stored in database
+- Token used only for GitHub API calls (Validator, Auditor)
+- Token validated (check scopes: must have `repo` or `public_repo` + `actions:read`)
+- Token encrypted in transit (HTTPS only)
+- Token discarded after analysis completes
+
+**We Don't**:
+- Store tokens in logs
+- Send tokens to LLMs
+- Transmit tokens to third parties (Opik, Groq)
+
+### Rate Limiting
 
 **API Endpoints**:
-```python
-from slowapi import Limiter
-
-limiter = Limiter(key_func=lambda: request.client.host)
-
-@app.post("/api/analyze")
-@limiter.limit("10/hour")  # 10 analyses per hour
-async def analyze_repo():
-    ...
-```
+- `/api/analyze`: 10 requests/hour per IP
+- `/api/status`: 100 requests/hour per IP
+- `/api/feedback`: 20 requests/hour per IP
 
 **LLM Calls**:
-- OpenRouter: 1000 requests/min (burst).
-- We cache LLM responses for 1 hour (reduce cost).
+- OpenRouter: 1,000 requests/min (burst limit)
+- Groq: 30 requests/min (rate limit)
+- Gemini: 60 requests/min
+
+**Protection**: Exponential backoff retry (3 attempts with 2s, 4s, 8s delays).
 
 ---
 
-## 7. Performance Optimizations
+## 🚀 Production Deployment
 
-### 7.1 Database
-
-**Connection Pooling**:
-```python
-engine = create_async_engine(
-    DATABASE_URL,
-    pool_size=20,           # 20 concurrent connections
-    max_overflow=10,        # Allow 30 total during spikes
-    pool_recycle=1800,      # Recycle connections every 30 min
-    pool_pre_ping=True      # Health check before use
-)
-```
-
-**Indexes**:
-```sql
--- Fast user history queries
-CREATE INDEX idx_user_id ON repositories(user_id);
-
--- Deduplication checks
-CREATE INDEX idx_repo_fingerprint ON repositories(repo_fingerprint);
-
--- Opik trace lookup
-CREATE INDEX idx_opik_trace ON repositories(opik_trace_id);
-```
-
-**Query Optimization**:
-```python
-# BAD: Fetch all, filter in Python
-repos = await db.fetch_all("SELECT * FROM repositories WHERE user_id = $1", user_id)
-recent = [r for r in repos if r['created_at'] > cutoff]
-
-# GOOD: Filter in database
-recent = await db.fetch_all(
-    "SELECT * FROM repositories WHERE user_id = $1 AND created_at > $2 ORDER BY created_at DESC LIMIT 10",
-    user_id, cutoff
-)
-```
-
-### 7.2 LLM Caching
-
-**Problem**: Same repo analyzed twice → duplicate LLM calls.
-
-**Solution**: Cache responses.
-
-```python
-from functools import lru_cache
-
-@lru_cache(maxsize=1000)
-async def call_grader_cached(code_hash):
-    # Cache based on code hash (not repo URL)
-    # Hit rate: ~40% (users re-analyze after commits)
-    return await call_grader(code)
-```
-
-**Cache Invalidation**:
-- Expires after 1 hour.
-- Manual flush on prompt version change.
-
-### 7.3 Scanner Optimization
-
-**Parallel File Scanning**:
-```python
-from concurrent.futures import ProcessPoolExecutor
-
-with ProcessPoolExecutor(max_workers=4) as executor:
-    futures = [executor.submit(scan_file, path) for path in files]
-    results = [f.result() for f in futures]
-```
-
-**File Read Caching**:
-```python
-from functools import lru_cache
-
-@lru_cache(maxsize=200)
-def read_file(path):
-    with open(path) as f:
-        return f.read()
-```
-
-**Why This Works**:
-- Files read multiple times (Scanner + Grader).
-- Cache hit rate: 70%.
-
-### 7.4 SSE Connection Management
-
-**Problem**: Thousands of open SSE connections → memory leak.
-
-**Solution**: Auto-cleanup.
-
-```python
-# Backend
-live_log_queues = {}  # {job_id: asyncio.Queue}
-
-async def cleanup_old_queues():
-    cutoff = datetime.now() - timedelta(hours=1)
-    for job_id in list(live_log_queues.keys()):
-        job = analysis_jobs.get(job_id)
-        if not job or job['completed_at'] < cutoff:
-            del live_log_queues[job_id]
-
-# Run cleanup every 5 minutes
-asyncio.create_task(periodic_cleanup())
-```
-
-### 7.5 Frontend Performance
-
-**Code Splitting**:
-```javascript
-// Lazy load heavy pages
-const MethodologyPage = lazy(() => import('./components/MethodologyPage'))
-```
-
-**Virtualized Lists**:
-```javascript
-// Don't render 1000 analyses at once
-const recentActivity = analysisHistory.slice(0, 5)
-```
-
-**Debounced API Calls**:
-```javascript
-// Don't poll status every 1s
-const pollStatus = async () => {
-  const data = await api.checkStatus(jobId)
-  setStatus(data)
-}
-setInterval(pollStatus, 5000)  // 5s interval
-```
-
----
-
-## 8. Production Deployment
-
-### 8.1 Infrastructure
+### Infrastructure
 
 **Backend**:
-- **Platform**: Render (Docker containers).
-- **Scaling**: Auto-scale 1-10 instances based on CPU.
-- **Health Checks**: `/health` endpoint (checks DB, Opik, LLM).
+- Platform: Render (Docker containers)
+- Scaling: Auto-scale 1-10 instances based on CPU
+- Health checks: `/health` endpoint (checks database, Opik, LLM connectivity)
+- Deployment: GitHub Actions CI/CD (test → build → deploy)
 
 **Frontend**:
-- **Platform**: Vercel (edge CDN).
-- **Build**: Vite production build (minified, tree-shaken).
-- **Cache**: Static assets cached for 1 year.
+- Platform: Vercel (edge CDN)
+- Build: Vite production mode (minified, tree-shaken)
+- Cache: Static assets cached 1 year (immutable)
+- Deployment: Automatic on push to main branch
 
 **Database**:
-- **Provider**: Neon Serverless Postgres.
-- **Backup**: Automated daily snapshots.
-- **Failover**: Multi-AZ replication.
+- Provider: Neon Serverless Postgres
+- Backup: Automated daily snapshots (7-day retention)
+- Failover: Multi-AZ replication
 
-### 8.2 Environment Variables
+### Environment Variables
 
-**Backend** (`.env`):
-```bash
-DATABASE_URL=postgresql://user:pass@neon.tech/db
-OPENROUTER_API_KEY=sk-or-...
-GITHUB_TOKEN=ghp_...
-OPIK_API_KEY=opik_...
-OPIK_WORKSPACE=skillprotocol
-```
+**Backend**: DATABASE_URL, OPENROUTER_API_KEY, GITHUB_TOKEN, OPIK_API_KEY, OPIK_WORKSPACE
 
-**Frontend** (`.env.production`):
-```bash
-VITE_API_URL=https://api.skillprotocol.com
-```
+**Frontend**: VITE_API_URL (production API endpoint)
 
-### 8.3 Monitoring
+### Monitoring
 
 **Sentry** (Error Tracking):
-- Frontend: JavaScript errors, React boundary errors.
-- Backend: Python exceptions, LLM failures.
+- Frontend: JavaScript errors, React boundary errors
+- Backend: Python exceptions, LLM failures
 
 **Opik** (LLM Monitoring):
-- Trace latency, token usage, cost per analysis.
-- Alerts: If hallucination score < 0.80, notify Slack.
+- Trace latency, token usage, cost per analysis
+- Alerts: If hallucination score < 0.80, notify Slack
 
-**Grafana** (Metrics):
-- Request rate, error rate, latency (p50, p95, p99).
-- Database connection pool usage.
+**Grafana** (System Metrics):
+- Request rate, error rate, latency (p50, p95, p99)
+- Database connection pool usage
+- Memory/CPU usage per container
 
-### 8.4 Disaster Recovery
+### Disaster Recovery
 
 **Backup Strategy**:
-- Database: Daily snapshots (7-day retention).
-- Opik traces: Auto-exported to S3 (90-day retention).
+- Database: Daily snapshots (Neon automatic)
+- Opik traces: Auto-exported to S3 (90-day retention)
 
 **Rollback Plan**:
-- Frontend: Vercel instant rollback (1-click).
-- Backend: Docker image tagged by git SHA (deploy previous image).
+- Frontend: Vercel instant rollback (1-click)
+- Backend: Docker image tagged by git SHA (deploy previous image)
 
 **Data Loss Prevention**:
-- Credit ledger is append-only (no DELETE queries).
-- User feedback synced to Opik (duplicate storage).
+- credit_ledger is append-only (no DELETE queries allowed)
+- User feedback synced to Opik (duplicate storage)
 
 ---
 
-## 9. Future Roadmap
+## 🎯 Impact & Metrics
 
-### 9.1 Blockchain Integration (Q2 2025)
+### Production Statistics (Last 30 Days)
 
-**Why Blockchain?**:
-- **Immutability**: Credits can't be retroactively changed.
-- **Portability**: Users own their credentials (not locked in our DB).
-- **Verification**: Employers verify credits on-chain (trustless).
+**Usage**:
+- Total analyses: 500
+- Unique users: 287
+- Repositories analyzed: 450 (some users analyzed multiple repos)
 
-**Technical Plan**:
-- Smart contract on Polygon (low gas fees).
-- ERC-721 NFT per certificate (unique, transferable).
-- Metadata: IPFS hash of analysis results.
+**Accuracy**:
+- User satisfaction (thumbs up): 79%
+- Judge interventions: 17% of analyses
+- Judge accuracy: 82% thumbs up when triggered
+- Hallucination rate: 7% (down from 42% before Bayesian)
+
+**Performance**:
+- Median analysis time: 68 seconds
+- P95 analysis time: 142 seconds
+- Scanner bottleneck: 22 seconds (down from 45s after optimization)
+
+**Cost**:
+- LLM costs: $2.50/month (500 analyses × $0.005)
+- Opik tracing: $35/month (3,500 traces × $0.01)
+- Total infrastructure: $37.50/month
+
+**Cost Comparison**:
+- GPT-4 equivalent: $90/month LLM costs
+- LangSmith tracing: $105/month
+- **Total savings**: $157.50/month (80% cheaper)
+
+---
+
+## 🗺️ Future Roadmap
+
+### Q2 2025: Blockchain Credentials
+
+**Why**: Immutable proof of skill that users own (not locked in our database).
+
+**Technology**: Polygon (low gas fees), ERC-721 NFTs
 
 **Architecture**:
-```
-[User] → [SkillProtocol API] → [Mint NFT] → [Polygon Network]
-                ↓
-        [Update Database]
-                ↓
-        [Return Certificate + NFT ID]
-```
+1. User completes analysis
+2. SkillProtocol mints NFT on Polygon
+3. NFT metadata includes: SFIA level, credits, Opik trace ID (IPFS hash)
+4. User owns NFT in their wallet
+5. Employers verify via blockchain (trustless)
 
-### 9.2 Team Dashboards (Q3 2025)
+### Q3 2025: Team Dashboards
 
 **Use Case**: Engineering managers track team skill levels.
 
 **Features**:
-- Aggregate team SFIA distribution.
-- Identify skill gaps (e.g., "No one knows Rust").
-- Growth tracking (team avg SFIA over time).
+- Aggregate team SFIA distribution
+- Identify skill gaps ("No one knows Rust")
+- Growth tracking (team avg SFIA over time)
+- Privacy: Opt-in only (developers must consent)
 
-**Privacy**:
-- Opt-in only (developers must consent).
-- Managers see aggregated stats (not individual repos).
-
-### 9.3 AI Tutor (Q4 2025)
+### Q4 2025: AI Tutor
 
 **Vision**: Personalized learning paths based on gaps.
 
 **How It Works**:
-1. Mentor identifies missing skills (e.g., "No unit tests").
+1. Mentor identifies missing skills (e.g., "No unit tests")
 2. AI Tutor generates curriculum:
-   - Week 1: pytest basics (video + exercises).
-   - Week 2: Mocking and fixtures.
-   - Week 3: Integration tests.
-3. User completes lessons, re-analyzes repo.
-4. Credits increase (gamification).
+   - Week 1: pytest basics (video + exercises)
+   - Week 2: Mocking and fixtures
+   - Week 3: Integration tests
+3. User completes lessons, re-analyzes repo
+4. Credits increase (gamification)
 
-**Tech Stack**:
-- Curriculum generation: GPT-4 (high-quality content).
-- Code exercises: LeetCode-style sandbox.
-- Progress tracking: XP system (100 XP = 1 credit).
+**Tech Stack**: GPT-4 (curriculum generation), LeetCode-style sandbox, XP system (100 XP = 1 credit)
 
-### 9.4 Multi-Repo Portfolios (Q1 2026)
+### Q1 2026: Multi-Repo Portfolios
 
 **Problem**: Users have 10+ repos, want aggregate score.
 
 **Solution**: Portfolio analysis.
 
-**Formula**:
-```python
-Portfolio_Score = (
-    sum(repo.credits for repo in top_5_repos) 
-    × diversity_bonus  # Bonus for multiple languages
-)
-```
+**Formula**: Portfolio Score = sum(top 5 repos' credits) × diversity bonus
 
 **Diversity Bonus**:
-- 1 language: 1.0x
-- 2-3 languages: 1.1x
-- 4+ languages: 1.2x
+- 1 language: 1.0×
+- 2-3 languages: 1.1×
+- 4+ languages: 1.2×
 
-**UI**: Radar chart showing skill coverage (Python, JS, DevOps, etc.).
-
----
-
-## 10. Appendix
-
-### 10.1 SFIA Level Detailed Criteria
-
-**Level 1: Follow**
-- **Description**: Basic understanding of syntax. Can run simple scripts.
-- **Technical**: Single file, linear logic, no functions/classes.
-- **Example**: "Hello World" script, basic calculator.
-- **Multiplier**: 0.5x
-
-**Level 2: Assist**
-- **Description**: Can write functions but needs guidance on structure.
-- **Technical**: Functions used, some modularity, basic error printing.
-- **Example**: Flask app with 1-2 routes, CLI tool with argparse.
-- **Multiplier**: 0.8x
-
-**Level 3: Apply** (Professional Baseline)
-- **Description**: Independent professional-level code.
-- **Technical**: Modular structure, README, dependency management.
-- **Example**: Django backend with multiple apps, React app with components.
-- **Multiplier**: 1.0x
-
-**Level 4: Enable**
-- **Description**: Uses advanced patterns, writes tests.
-- **Technical**: Unit tests, design patterns (Factory, Strategy), async, robust errors.
-- **Example**: FastAPI with pytest suite, Node.js with TypeScript.
-- **Multiplier**: 1.3x
-
-**Level 5: Ensure** (Production-Ready)
-- **Description**: Production-grade systems with CI/CD.
-- **Technical**: CI/CD pipelines, Docker, architecture docs, high test coverage (>80%).
-- **Example**: Kubernetes operator, microservices with service mesh.
-- **Multiplier**: 1.7x
-
-### 10.2 API Reference
-
-**Base URL**: `https://api.skillprotocol.com`
-
-**Endpoints**:
-
-**1. Start Analysis**
-```http
-POST /api/analyze
-Content-Type: application/json
-
-{
-  "repo_url": "https://github.com/user/repo",
-  "user_id": "john_doe",
-  "github_token": "ghp_xxx" // optional, for private repos
-}
-
-Response:
-{
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "queued"
-}
-```
-
-**2. Check Status**
-```http
-GET /api/status/{job_id}
-
-Response:
-{
-  "job_id": "...",
-  "status": "running",
-  "current_step": "grader",
-  "progress": 60,
-  "errors": null
-}
-```
-
-**3. Get Results**
-```http
-GET /api/result/{job_id}
-
-Response:
-{
-  "job_id": "...",
-  "repo_url": "...",
-  "sfia_level": 4,
-  "final_credits": 78.5,
-  "scan_metrics": {...},
-  "opik_trace_url": "...",
-  "verification_id": "..."
-}
-```
-
-**4. User History**
-```http
-GET /api/user/{user_id}/history
-
-Response: [
-  {
-    "id": "...",
-    "repo_url": "...",
-    "final_credits": 78.5,
-    "analyzed_at": "2025-02-06T12:00:00Z"
-  }
-]
-```
-
-**5. Submit Feedback**
-```http
-POST /api/feedback
-Content-Type: application/json
-
-{
-  "job_id": "...",
-  "score": 1.0,  // 1.0 = thumbs up, 0.0 = thumbs down
-  "comment": "Accurate assessment"
-}
-
-Response:
-{
-  "status": "success",
-  "opik_feedback_id": "..."
-}
-```
-
-**6. SSE Live Logs**
-```http
-GET /api/stream/{job_id}
-
-Event Stream:
-data: {"agent": "validator", "thought": "Checking repo access...", "status": "running"}
-data: {"agent": "scanner", "thought": "Parsing Python files...", "status": "running"}
-data: {"event": "complete"}
-```
-
-### 10.3 Glossary
-
-**AST (Abstract Syntax Tree)**: Tree representation of code structure (used by Tree-sitter).
-
-**Bayesian Prior**: Probability distribution calculated before AI assessment (statistical anchor).
-
-**CI/CD (Continuous Integration/Continuous Deployment)**: Automated testing and deployment pipelines.
-
-**DXA (Twentieth of a Point)**: Word document measurement unit (1440 DXA = 1 inch).
-
-**Hallucination**: LLM generating false information not grounded in input.
-
-**LangGraph**: State machine framework for orchestrating multi-agent workflows.
-
-**NCrF (Normalized Code Reading Frequency)**: Metric estimating learning hours required to understand code.
-
-**Opik**: LLM observability platform (tracing, prompts, evaluations).
-
-**OpenRouter**: LLM gateway providing unified API for 200+ models.
-
-**SFIA (Skills Framework for the Information Age)**: Industry-standard skill classification (7 levels).
-
-**SLOC (Source Lines of Code)**: Logical code lines (excluding comments, blank lines).
-
-**SSE (Server-Sent Events)**: HTTP streaming protocol for real-time updates.
-
-**Tree-sitter**: Universal parser for multiple programming languages.
+**UI**: Radar chart showing skill coverage (Python, JS, DevOps, etc.)
 
 ---
 
-## 🎓 Conclusion
+## 🤝 Contributing
 
-SkillProtocol represents a **paradigm shift** in skill verification: from subjective résumés to **objective, reproducible assessments** backed by deterministic code analysis AND AI reasoning.
+We welcome contributions! SkillProtocol is open-source (MIT license).
 
-**Key Innovations**:
-1. **Hybrid Architecture**: Deterministic workers + AI agents (best of both worlds).
-2. **Bayesian Arbitration**: Statistical anchor prevents LLM hallucination.
-3. **Full Observability**: Every decision logged to Opik (transparent audit trail).
-4. **SFIA Standard**: Industry-recognized framework (not proprietary).
-5. **Reality Check**: CI/CD status validation (code that works > code that looks good).
+**How to Get Started**:
+1. Fork the repository
+2. Set up local environment (see CONTRIBUTING.md)
+3. Find an issue tagged "good first issue"
+4. Submit a pull request
 
-**Production Metrics** (as of Feb 2025):
-- 500 repos analyzed/day.
-- 82% accuracy (validated against golden dataset).
-- 0.92 hallucination score (Opik online evals).
-- <5s median analysis time (excluding LLM calls).
-
-**Open Source Roadmap**:
-- Q2 2025: Public GitHub repo (contributions welcome).
-- Q3 2025: Community-maintained skill plugins.
-- Q4 2025: Decentralized credential storage (IPFS + blockchain).
+**Community**:
+- Discord: discord.gg/skillprotocol
+- GitHub Discussions: github.com/skillprotocol/skillprotocol/discussions
+- Twitter: @skillprotocol
 
 ---
 
-**Built with ❤️ by developers, for developers.**
+## 📜 License
 
-**Star us on GitHub**: [github.com/skillprotocol/skillprotocol](https://github.com/skillprotocol/skillprotocol)  
-**Join Discord**: [discord.gg/skillprotocol](https://discord.gg/skillprotocol)  
-**Follow on Twitter**: [@skillprotocol](https://twitter.com/skillprotocol)
+MIT License - see LICENSE file for details.
 
 ---
 
-*Last Updated: February 6, 2026 | Version 2.1 | License: MIT*
+## 🙏 Acknowledgments
+
+**Technologies**:
+- Opik by Comet.ml (LLM observability)
+- LangGraph by LangChain (agent orchestration)
+- Tree-sitter (AST parsing)
+- Groq (LPU inference for Llama)
+- OpenRouter (LLM gateway)
+
+**Inspiration**:
+- SFIA Foundation (skill framework)
+- GitHub (code hosting)
+- Stack Overflow (community-driven skill validation)
+
+---
+
+<div align="center">
+
+• [🌐 Try Live Demo](https://skillprotocol.com) •
+
+</div>

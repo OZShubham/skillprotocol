@@ -1,13 +1,88 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { 
   ArrowRight, Github, ShieldCheck, Database, Search, 
   Cpu, Lock, Code2, Scale, Terminal, CheckCircle2, 
   Workflow, Zap, Binary, Layers, BookOpen, TrendingUp,
-  GitBranch
+  GitBranch, Eye, Network, Server, Bot, BrainCircuit,
+  Activity, Award, LockKeyhole, Sparkles, ChevronRight
 } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion'
 import { api } from '../services/api'
+
+// --- CONSTANTS & CONFIG ---
+const AGENT_COUNCIL = [
+  {
+    id: 'validator',
+    name: 'Validator',
+    role: 'Deterministic Gatekeeper',
+    icon: ShieldCheck,
+    color: 'text-blue-500',
+    bg: 'bg-blue-500/10',
+    border: 'border-blue-500/20',
+    desc: 'Validates repository accessibility, enforces size limits (<500MB), checks privacy settings, and handles OAuth token exchange securely using GitHub API.'
+  },
+  {
+    id: 'scanner',
+    name: 'Scanner',
+    role: 'Code Archaeologist',
+    icon: Terminal,
+    color: 'text-green-500',
+    bg: 'bg-green-500/10',
+    border: 'border-green-500/20',
+    desc: 'Parses Abstract Syntax Trees (AST) for 15+ languages using Tree-sitter. Calculates SLOC, Cyclomatic Complexity, and NCrF base scores without hallucination.'
+  },
+  {
+    id: 'math',
+    name: 'Math Model',
+    role: 'Statistical Oracle',
+    icon: Binary,
+    color: 'text-orange-500',
+    bg: 'bg-orange-500/10',
+    border: 'border-orange-500/20',
+    desc: 'Calculates a Bayesian "Prior Probability" of skill level based purely on hard metrics (SLOC density, test presence). Anchors the AI to statistical reality.'
+  },
+  {
+    id: 'grader',
+    name: 'Grader',
+    role: 'Semantic Evaluator',
+    icon: Scale,
+    color: 'text-purple-500',
+    bg: 'bg-purple-500/10',
+    border: 'border-purple-500/20',
+    desc: 'Llama 3.3 70B Agent using Tool Calling to verify architectural patterns (MVC, DI, Factory) against the SFIA framework rubric with evidence citations.'
+  },
+  {
+    id: 'judge',
+    name: 'Judge',
+    role: 'Supreme Arbitrator',
+    icon: Zap,
+    color: 'text-red-500',
+    bg: 'bg-red-500/10',
+    border: 'border-red-500/20',
+    desc: 'Gemini 3 Flash agent that resolves conflicts between AI Grading and Math Models. Prevents grade inflation by demanding concrete file-path evidence.'
+  },
+  {
+    id: 'auditor',
+    name: 'Auditor',
+    role: 'Reality Checker',
+    icon: CheckCircle2,
+    color: 'text-teal-500',
+    bg: 'bg-teal-500/10',
+    border: 'border-teal-500/20',
+    desc: 'Queries GitHub Actions API to verify if tests actually pass. Applies a strict 50% credit penalty for failing builds. Code must compile to count.'
+  },
+  {
+    id: 'mentor',
+    name: 'Mentor',
+    role: 'Growth Coach',
+    icon: TrendingUp,
+    color: 'text-yellow-500',
+    bg: 'bg-yellow-500/10',
+    border: 'border-yellow-500/20',
+    desc: 'Analyzes skill gaps between current and target levels. Generates a personalized, time-boxed growth roadmap with "Quick Wins" and resource links.'
+  }
+]
 
 export default function LandingPage({ onStartAnalysis, onUserDetected }) {
   const [repoUrl, setRepoUrl] = useState('')
@@ -18,6 +93,16 @@ export default function LandingPage({ onStartAnalysis, onUserDetected }) {
   
   const location = useLocation()
   const navigate = useNavigate()
+  const containerRef = useRef(null)
+  
+  // Parallax Scroll Effect (Subtle)
+  const { scrollYProgress } = useScroll({
+    target: containerRef,
+    offset: ["start start", "end end"]
+  })
+  
+  const yHero = useTransform(scrollYProgress, [0, 0.2], [0, -20])
+  const opacityHero = useTransform(scrollYProgress, [0, 0.2], [1, 0])
 
   useEffect(() => {
     if (location.state?.requestToken) {
@@ -46,7 +131,6 @@ export default function LandingPage({ onStartAnalysis, onUserDetected }) {
     }
 
     const owner = extractOwner(repoUrl)
-    
     if (owner) {
       onUserDetected(owner) 
     } else {
@@ -75,340 +159,400 @@ export default function LandingPage({ onStartAnalysis, onUserDetected }) {
   }
 
   return (
-    <div className="relative overflow-hidden min-h-[calc(100vh-4rem)] bg-void transition-colors duration-300">
+    <div ref={containerRef} className="relative overflow-hidden min-h-screen bg-void text-text-main transition-colors duration-300 pb-20 font-sans selection:bg-primary/20">
       
-      {/* Background Decor - Adaptive to Theme */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary opacity-5 blur-[80px] rounded-full pointer-events-none" />
+      {/* --- BACKGROUND FX (Adaptive) --- */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[120px] rounded-full mix-blend-multiply dark:mix-blend-screen" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/5 blur-[120px] rounded-full mix-blend-multiply dark:mix-blend-screen" />
+      </div>
 
-      {/* Hero Section */}
+      {/* --- HERO SECTION (CAREER GROWTH FOCUSED) --- */}
       <motion.section 
-        className="relative max-w-6xl mx-auto px-6 pt-20 pb-16 text-center"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
+        style={{ y: yHero, opacity: opacityHero }}
+        className="relative max-w-4xl mx-auto px-6 pt-16 pb-12 text-center z-10"
       >
         <motion.div 
-          className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full text-sm text-primary mb-6 border border-primary/20"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.2 }}
+          className="inline-flex items-center gap-2 px-3 py-1 bg-surface border border-border rounded-full text-[10px] font-mono text-text-muted mb-6 shadow-sm"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
         >
-          <Workflow className="w-4 h-4" />
-          <span className="font-medium">Orchestrator-Worker Architecture</span>
+          <Sparkles className="w-3 h-3 text-primary" />
+          <span className="font-semibold text-text-main">LANGGRAPH v2.2</span>
+          <span className="text-border">|</span>
+          <span>OPIK OBSERVABILITY</span>
         </motion.div>
 
-        <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-text-main mb-6 leading-tight">
-          Proof of <span className="text-text-main">Work.</span><br />
-          <span className="text-primary">Verified.</span>
-        </h1>
+        <motion.h1 
+          className="text-4xl md:text-5xl font-bold tracking-tight text-text-main mb-4 leading-tight"
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        >
+          Your AI-Powered <br className="hidden md:block" />
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-orange-500">Career Growth Engine.</span>
+        </motion.h1>
         
-        <p className="text-xl text-text-muted mb-4 max-w-3xl mx-auto leading-relaxed">
-          Advanced workflow combining <span className="text-text-main font-semibold">deterministic code analysis workers</span> with{' '}
-          <span className="text-text-main font-semibold">AI reasoning agents</span> for comprehensive skill evaluation.
-        </p>
+        <motion.p 
+          className="text-base text-text-muted mb-8 max-w-xl mx-auto leading-relaxed"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+        >
+          Turn GitHub repositories into verifiable skill metrics, personalized learning roadmaps, and professional growth.
+        </motion.p>
 
-        <p className="text-base text-text-dim mb-10 max-w-2xl mx-auto">
-          Powered by <span className="font-mono text-xs bg-surface border border-border px-2 py-1 rounded">Tree-sitter AST</span>, 
-          <span className="font-mono text-xs bg-surface border border-border px-2 py-1 rounded mx-1">Llama 3.3</span>, 
-          <span className="font-mono text-xs bg-surface border border-border px-2 py-1 rounded">Gemini 3 Flash</span>, and 
-          <span className="font-mono text-xs bg-surface border border-border px-2 py-1 rounded mx-1">LangGraph</span>
-        </p>
-
-        {/* Input Section */}
-        <div className="max-w-2xl mx-auto space-y-4 mb-24">
-          <div className="flex gap-3 relative group">
-            {/* Input Glow */}
-            <div className="absolute -inset-1 bg-gradient-to-r from-primary/30 to-blue-500/30 rounded-xl opacity-20 group-hover:opacity-40 blur transition duration-500"></div>
-            
-            <div className="relative flex-1">
-              <Github className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-text-dim" />
+        {/* --- INPUT MODULE (HIGH CONTRAST) --- */}
+        <div className="max-w-xl mx-auto relative z-20 mb-8">
+          <motion.div 
+            className="flex gap-2 p-1.5 bg-surface border border-border rounded-xl shadow-xl relative group hover:border-primary/50 transition-colors"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+          >
+            <div className="relative flex-1 flex items-center">
+              <Github className="absolute left-3 w-5 h-5 text-text-muted" />
               <input
                 type="text"
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
-                placeholder="https://github.com/username/repository"
-                className="w-full pl-12 pr-4 py-4 bg-panel border border-border text-text-main rounded-xl focus:outline-none focus:border-primary/50 transition-all placeholder:text-text-dim/50"
+                placeholder="github.com/username/repository"
+                className="w-full pl-10 pr-3 py-2.5 bg-transparent border-none text-text-main text-sm placeholder:text-text-muted/50 focus:ring-0"
                 disabled={loading}
               />
             </div>
+            
             <motion.button
               onClick={handleAnalyze}
               disabled={loading}
-              className="relative px-8 py-4 bg-primary hover:brightness-110 text-bg-main rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-primary/20"
+              className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-white dark:text-black rounded-lg font-bold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-md"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
               {loading ? (
                 <>
                   <motion.div
-                    className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                    className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full"
                     animate={{ rotate: 360 }}
                     transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                   />
-                  <span>Analyzing</span>
+                  <span>Run</span>
                 </>
               ) : (
                 <>
-                  <span>Start</span>
-                  <ArrowRight className="w-5 h-5" />
+                  <span>Verify</span>
+                  <ArrowRight className="w-3 h-3" />
                 </>
               )}
             </motion.button>
-          </div>
+          </motion.div>
 
-          {showTokenInput && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className="relative"
-            >
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary" />
-              <input
-                type="password"
-                value={githubToken}
-                onChange={(e) => setGithubToken(e.target.value)}
-                placeholder="GitHub Personal Access Token (for private repos)"
-                className="w-full pl-12 pr-4 py-4 bg-panel border border-primary/30 text-text-main rounded-xl focus:outline-none focus:border-primary"
-              />
-            </motion.div>
-          )}
+          {/* Token Input (Conditional) */}
+          <AnimatePresence>
+            {showTokenInput && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden mt-2"
+              >
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-primary" />
+                  <input
+                    type="password"
+                    value={githubToken}
+                    onChange={(e) => setGithubToken(e.target.value)}
+                    placeholder="GitHub Token (repo scope)"
+                    className="w-full pl-9 pr-3 py-2 bg-surface border border-primary/30 text-text-main rounded-lg text-xs focus:outline-none focus:border-primary shadow-inner"
+                  />
+                </div>
+              </motion.div>
+            )}
 
-          {error && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="p-4 bg-error/10 border border-error/20 rounded-lg text-error text-sm font-medium flex items-center gap-2"
-            >
-              <ShieldCheck className="w-4 h-4" /> {error}
-            </motion.div>
-          )}
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-red-600 text-xs font-medium flex items-center gap-2 justify-center"
+              >
+                <ShieldCheck className="w-3 h-3" /> 
+                <span>{error}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* --- METHODOLOGY SECTION (Replaces Formula) --- */}
-        <div className="max-w-6xl mx-auto text-left mb-24">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-3xl font-bold text-text-main flex items-center gap-3">
-              <BookOpen className="w-8 h-8 text-primary" />
-              Verification Methodology
-            </h2>
-            <button 
-              onClick={() => navigate('/methodology')}
-              className="text-sm font-mono text-text-muted hover:text-primary transition-colors flex items-center gap-2"
-            >
-              Full Technical Report <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="grid md:grid-cols-4 gap-6">
-            <MethodologyCard 
-              step="01"
-              title="Deterministic Scan"
-              icon={Terminal}
-              desc="We parse the AST (Abstract Syntax Tree) to calculate NCrF complexity, SLOC, and structural patterns without using AI."
-              color="text-green-500"
-              bg="bg-green-500/10"
-              border="border-green-500/20"
-            />
-            <MethodologyCard 
-              step="02"
-              title="AI Assessment"
-              icon={Scale}
-              desc="The Grader Agent (Llama 3.3) analyzes code semantics against the SFIA framework rubric to assign a capability level."
-              color="text-primary"
-              bg="bg-primary/10"
-              border="border-primary/20"
-            />
-            <MethodologyCard 
-              step="03"
-              title="Bayesian Check"
-              icon={Database}
-              desc="The Judge Agent compares the AI's grade against a statistical prior derived from the code metrics. It arbitrates conflicts."
-              color="text-purple-400"
-              bg="bg-purple-500/10"
-              border="border-purple-500/20"
-            />
-            <MethodologyCard 
-              step="04"
-              title="Reality Audit"
-              icon={CheckCircle2}
-              desc="The Auditor Worker verifies CI/CD build logs. Code that fails to compile receives a strict 50% value penalty."
-              color="text-blue-400"
-              bg="bg-blue-500/10"
-              border="border-blue-500/20"
-            />
-          </div>
-        </div>
-
-        {/* --- SYSTEM ARCHITECTURE --- */}
+        {/* Tech Stack (Visible) */}
         <motion.div 
-          className="max-w-5xl mx-auto bg-panel border border-border rounded-2xl p-8 shadow-xl"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
+          className="flex flex-wrap justify-center gap-3 opacity-80"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0.8 }}
+          transition={{ delay: 0.6 }}
         >
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <Layers className="w-6 h-6 text-text-dim" />
-            <h3 className="text-2xl font-bold text-text-main">System Architecture</h3>
-          </div>
-          
-          <div className="grid md:grid-cols-2 gap-8 text-left">
-            
-            {/* Workers */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-green-500/10 rounded-lg">
-                  <Binary className="w-5 h-5 text-green-500" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-text-main">Deterministic Workers</h4>
-                  <p className="text-xs text-text-muted">High reliability, zero hallucination</p>
-                </div>
-              </div>
-              <div className="pl-4 border-l-2 border-border space-y-3">
-                <TechItem name="Validator" desc="GitHub API verification" />
-                <TechItem name="Scanner" desc="Tree-sitter AST parsing" />
-                <TechItem name="Auditor" desc="CI/CD status checks" />
-              </div>
-            </div>
-
-            {/* Agents */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-primary/10 rounded-lg">
-                  <Cpu className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-text-main">Reasoning Agents</h4>
-                  <p className="text-xs text-text-muted">Semantic understanding & tool use</p>
-                </div>
-              </div>
-              <div className="pl-4 border-l-2 border-border space-y-3">
-                <TechItem name="Grader" desc="Llama 3.3 SFIA assessment" />
-                <TechItem name="Judge" desc="Gemini 3 Bayesian arbitration" />
-                <TechItem name="Mentor" desc="Growth plan generation" />
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-8 pt-6 border-t border-border flex items-center justify-center gap-2 text-sm text-text-dim">
-            <Workflow className="w-4 h-4" />
-            <span>Orchestrated by <strong>LangGraph</strong> state machine with conditional routing</span>
-          </div>
+          <TechPill icon={Cpu} label="Tree-sitter" />
+          <TechPill icon={BrainCircuit} label="Bayesian" />
+          <TechPill icon={Bot} label="Llama 3.3" />
+          <TechPill icon={Eye} label="Opik" />
         </motion.div>
-
       </motion.section>
 
-      {/* Advanced Patterns */}
-      <section className="max-w-6xl mx-auto px-6 py-16">
-        <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold text-text-main mb-4">Advanced Workflow Patterns</h2>
-          <p className="text-text-muted max-w-2xl mx-auto">
-            Built on proven LangGraph architectural patterns for reliability and scalability
-          </p>
+      {/* --- SECTION 2: INTELLIGENCE ARCHITECTURE --- */}
+      <div className="max-w-6xl mx-auto text-left mb-24 px-6">
+        <div className="flex items-center justify-between mb-8 border-b border-border pb-4">
+          <h2 className="text-xl font-bold text-text-main flex items-center gap-2">
+            <Network className="w-5 h-5 text-primary" />
+            The 7-Agent Council
+          </h2>
+          <button 
+            onClick={() => navigate('/methodology')}
+            className="text-xs font-mono text-text-muted hover:text-primary transition-colors flex items-center gap-1"
+          >
+            Full Architecture <ArrowRight className="w-3 h-3" />
+          </button>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6">
-          <WorkflowPatternCard
-            icon={<GitBranch className="w-6 h-6" />}
-            title="Routing Workflow"
-            description="Validator routes to specialized code paths — Scanner for public repos, token verification for private access."
-            color="text-blue-400"
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {AGENT_COUNCIL.map((agent, i) => (
+             <AgentGridCard key={agent.id} agent={agent} index={i} />
+          ))}
+        </div>
+      </div>
+
+      {/* --- SECTION 3: METHODOLOGY FLOW --- */}
+      <section className="max-w-6xl mx-auto px-6 mb-24">
+        <div className="text-center mb-10">
+          <h2 className="text-xl font-bold text-text-main mb-2">Verification Pipeline</h2>
+          <p className="text-sm text-text-muted">Rigorous 4-stage validation process.</p>
+        </div>
+
+        <div className="grid md:grid-cols-4 gap-4">
+          <MethodologyCard 
+            step="01"
+            title="Scan"
+            icon={Terminal}
+            desc="We clone the repo and parse the AST (Abstract Syntax Tree) to calculate NCrF complexity, SLOC, and structural patterns without using AI."
+            color="text-green-500"
+            bg="bg-green-500/5"
+            border="border-green-500/20"
           />
-          <WorkflowPatternCard
-            icon={<Layers className="w-6 h-6" />}
-            title="Orchestrator-Worker"
-            description="LangGraph orchestrates parallel AST scanning, sequential AI grading, and dynamic Judge arbitration."
-            color="text-purple-400"
+          <MethodologyCard 
+            step="02"
+            title="Assess"
+            icon={Scale}
+            desc="The Grader Agent (Llama 3.3) analyzes code semantics against the SFIA framework rubric to assign a level."
+            color="text-primary"
+            bg="bg-primary/5"
+            border="border-primary/20"
           />
-          <WorkflowPatternCard
-            icon={<Zap className="w-6 h-6" />}
+          <MethodologyCard 
+            step="03"
+            title="Check"
+            icon={Database}
+            desc="The Judge Agent compares the AI grade against statistical priors. It arbitrates conflicts."
+            color="text-purple-500"
+            bg="bg-purple-500/5"
+            border="border-purple-500/20"
+          />
+          <MethodologyCard 
+            step="04"
+            title="Audit"
+            icon={CheckCircle2}
+            desc="The Auditor verifies CI/CD builds. Code that fails to compile receives a strict 50% penalty."
+            color="text-blue-500"
+            bg="bg-blue-500/5"
+            border="border-blue-500/20"
+          />
+        </div>
+      </section>
+
+      {/* --- SECTION 4: OPIK OBSERVABILITY --- */}
+      <section className="max-w-6xl mx-auto px-6 mb-24">
+        <div className="bg-panel border border-border rounded-2xl p-8 relative overflow-hidden shadow-sm">
+          {/* Subtle Glow */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-[80px] -z-10" />
+
+          <div className="flex flex-col lg:flex-row gap-10 items-center">
+            <div className="flex-1 text-left">
+              <div className="flex items-center gap-2 mb-3">
+                <Eye className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-bold text-text-main">Self-Improving Architecture</h3>
+              </div>
+              <p className="text-sm text-text-muted mb-6 leading-relaxed">
+                Powered by <strong>Opik</strong>, SkillProtocol learns from every analysis. 
+                Our feedback flywheel automatically mines user verifications to optimize agent prompts.
+              </p>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <FeatureRow icon={Search} text="Full Trace Observability" />
+                <FeatureRow icon={Database} text="Golden Dataset Mining" />
+                <FeatureRow icon={Cpu} text="Meta-Prompt Optimization" />
+                <FeatureRow icon={ShieldCheck} text="Online Hallucination Checks" />
+              </div>
+            </div>
+
+            <div className="flex-1 w-full">
+              <div className="bg-[#0D1117] border border-gray-700 rounded-lg overflow-hidden shadow-xl text-[10px]">
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-white/5 bg-white/5">
+                  <div className="w-2 h-2 rounded-full bg-red-500/80" />
+                  <div className="w-2 h-2 rounded-full bg-yellow-500/80" />
+                  <div className="w-2 h-2 rounded-full bg-green-500/80" />
+                  <span className="ml-2 font-mono text-gray-400">opik_trace.log</span>
+                </div>
+                <div className="p-4 font-mono text-gray-300 space-y-2">
+                  <div className="flex gap-2"><span className="text-blue-400">INFO</span><span>Starting Trace #a1b2</span></div>
+                  <div className="flex gap-2 pl-3 border-l border-white/10"><span className="text-green-400">✓</span><span>Validator: OK</span></div>
+                  <div className="flex gap-2 pl-3 border-l border-white/10"><span className="text-green-400">✓</span><span>Scanner: 45 files (Tree-sitter)</span></div>
+                  <div className="flex gap-2 pl-3 border-l border-white/10"><span className="text-purple-400">⚡</span><span>Grader: Tool Call get_criteria(3)</span></div>
+                  <div className="flex gap-2 pl-3 border-l border-white/10"><span className="text-red-400">⚖️</span><span>Judge: Conflict Resolved</span></div>
+                  <div className="flex gap-2"><span className="text-blue-400">INFO</span><span>Added to Golden Dataset</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* --- SECTION 5: ADVANCED PATTERNS --- */}
+      <section className="max-w-6xl mx-auto px-6 mb-24">
+        <div className="text-center mb-8">
+          <h2 className="text-xl font-bold text-text-main mb-2">LangGraph Patterns</h2>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-4">
+          <WorkflowPatternCard 
+            icon={<GitBranch className="w-5 h-5" />}
+            title="Conditional Routing"
+            desc="Dynamic execution paths based on validation state."
+            color="text-blue-500"
+          />
+          <WorkflowPatternCard 
+            icon={<Layers className="w-5 h-5" />}
+            title="Human-in-the-Loop Sim"
+            desc="Judge agent acts as an adversarial reviewer."
+            color="text-purple-500"
+          />
+          <WorkflowPatternCard 
+            icon={<Zap className="w-5 h-5" />}
             title="Evaluator-Optimizer"
-            description="Judge evaluates Grader outputs — conflicts trigger re-evaluation loops until consensus emerges."
+            desc="System tunes its own prompts via Opik."
             color="text-primary"
           />
         </div>
       </section>
 
-      {/* Footer Tech Stack */}
-      <section className="max-w-6xl mx-auto px-6 py-12 border-t border-border mt-12">
-        <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-text-dim font-mono">
-          <div className="flex items-center gap-2">
-            <Code2 className="w-4 h-4" /> Tree-sitter
+      {/* --- FOOTER --- */}
+      <footer className="max-w-6xl mx-auto px-6 py-8 border-t border-border mt-12">
+        <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-text-muted font-mono mb-8">
+          <div className="flex items-center gap-1.5 hover:text-text-main transition-colors">
+            <Code2 className="w-3 h-3" /> Tree-sitter
           </div>
-          <div className="w-px h-4 bg-border" />
-          <div className="flex items-center gap-2">
-            <Cpu className="w-4 h-4" /> Groq Llama 3.3
+          <div className="w-px h-3 bg-border" />
+          <div className="flex items-center gap-1.5 hover:text-text-main transition-colors">
+            <Cpu className="w-3 h-3" /> Llama 3.3
           </div>
-          <div className="w-px h-4 bg-border" />
-          <div className="flex items-center gap-2">
-            <Database className="w-4 h-4" /> Gemini 3 Flash
+          <div className="w-px h-3 bg-border" />
+          <div className="flex items-center gap-1.5 hover:text-text-main transition-colors">
+            <Database className="w-3 h-3" /> Gemini 3 Flash
           </div>
-          <div className="w-px h-4 bg-border" />
-          <div className="flex items-center gap-2">
-            <Workflow className="w-4 h-4" /> LangGraph
+          <div className="w-px h-3 bg-border" />
+          <div className="flex items-center gap-1.5 hover:text-text-main transition-colors">
+            <Workflow className="w-3 h-3" /> LangGraph
           </div>
-          <div className="w-px h-4 bg-border" />
-          <div className="flex items-center gap-2">
-            <BookOpen className="w-4 h-4" /> Opik Tracing
+          <div className="w-px h-3 bg-border" />
+          <div className="flex items-center gap-1.5 hover:text-text-main transition-colors">
+            <BookOpen className="w-3 h-3" /> Opik Tracing
           </div>
         </div>
-      </section>
+        <p className="text-center text-text-dim text-[10px] font-mono mt-6 opacity-60">
+          BUILT FOR NEW YEAR, NEW YOU HACKATHON 2025 · TEAM SKILLPROTOCOL
+        </p>
+      </footer>
     </div>
   )
 }
 
-// --- SUBCOMPONENTS ---
+// --- SUBCOMPONENTS (REFINED FOR CONTRAST) ---
+
+function TechPill({ icon: Icon, label }) {
+  return (
+    <span className="flex items-center gap-1.5 px-2.5 py-1 bg-surface border border-border rounded-md font-mono text-[10px] text-text-muted shadow-sm">
+      <Icon className="w-3 h-3 text-text-dim" />
+      {label}
+    </span>
+  )
+}
+
+function AgentGridCard({ agent, index }) {
+  const Icon = agent.icon
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05 }}
+      className="group flex flex-col p-4 bg-surface border border-border rounded-xl hover:border-primary/30 transition-all shadow-sm hover:shadow-md"
+    >
+      <div className="flex items-center gap-3 mb-3">
+        <div className={`p-2 rounded-lg ${agent.bg} ${agent.color}`}>
+          <Icon className="w-4 h-4" />
+        </div>
+        <div>
+          <h4 className="font-bold text-text-main text-sm">{agent.name}</h4>
+          <span className="text-[9px] font-mono uppercase tracking-wider text-text-muted">
+            {agent.role}
+          </span>
+        </div>
+      </div>
+      <p className="text-xs text-text-muted leading-relaxed line-clamp-3 group-hover:line-clamp-none transition-all">
+        {agent.desc}
+      </p>
+    </motion.div>
+  )
+}
 
 function MethodologyCard({ step, title, icon: Icon, desc, color, bg, border }) {
   return (
     <motion.div 
-      whileHover={{ y: -5 }}
-      className={`bg-panel border ${border} p-6 rounded-xl relative overflow-hidden group`}
+      whileHover={{ y: -3 }}
+      className={`bg-surface border ${border} p-5 rounded-xl relative overflow-hidden group shadow-sm`}
     >
-      <div className={`absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity`}>
-        <Icon className={`w-24 h-24 ${color}`} />
+      <div className={`absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity`}>
+        <Icon className={`w-20 h-20 ${color}`} />
       </div>
-      
-      <div className={`text-xs font-mono font-bold mb-3 ${color} ${bg} px-2 py-1 rounded inline-block`}>
+      <div className={`text-[10px] font-mono font-bold mb-2 ${color} ${bg} px-1.5 py-0.5 rounded inline-block`}>
         STEP {step}
       </div>
-      
-      <h3 className="text-lg font-bold text-text-main mb-3 flex items-center gap-2">
-        <Icon className={`w-5 h-5 ${color}`} /> {title}
+      <h3 className="text-sm font-bold text-text-main mb-2 flex items-center gap-2">
+        <Icon className={`w-4 h-4 ${color}`} /> {title}
       </h3>
-      
-      <p className="text-sm text-text-muted leading-relaxed relative z-10">
+      <p className="text-xs text-text-muted leading-relaxed relative z-10">
         {desc}
       </p>
     </motion.div>
   )
 }
 
-function WorkflowPatternCard({ icon, title, description, color }) {
+function WorkflowPatternCard({ icon, title, desc, color }) {
   return (
-    <motion.div
-      className="p-6 rounded-xl border border-border bg-panel hover:border-primary/30 transition-all shadow-sm hover:shadow-md"
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-    >
-      <div className={`mb-4 p-3 bg-surface rounded-lg w-fit ${color}`}>
+    <div className="p-4 rounded-xl border border-border bg-surface hover:border-primary/30 transition-all shadow-sm">
+      <div className={`mb-3 p-2 bg-surface rounded-lg w-fit ${color} bg-opacity-10`}>
         {icon}
       </div>
-      <h3 className="text-lg font-bold mb-2 text-text-main">{title}</h3>
-      <p className="text-sm text-text-muted leading-relaxed">{description}</p>
-    </motion.div>
+      <h3 className="text-sm font-bold mb-1 text-text-main">{title}</h3>
+      <p className="text-xs text-text-muted leading-relaxed">{desc}</p>
+    </div>
   )
 }
 
-function TechItem({ name, desc }) {
+function FeatureRow({ icon: Icon, text }) {
   return (
-    <div className="flex items-center gap-2 text-sm">
-      <div className="w-1.5 h-1.5 rounded-full bg-border" />
-      <span className="font-medium text-text-main">{name}</span>
-      <span className="text-text-muted">—</span>
-      <span className="text-text-dim">{desc}</span>
+    <div className="flex items-center gap-3 text-xs text-text-main">
+      <div className="p-1.5 bg-surface rounded-full border border-border shrink-0 shadow-sm">
+        <Icon className="w-3 h-3 text-primary" />
+      </div>
+      {text}
     </div>
   )
 }
