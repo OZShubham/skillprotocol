@@ -714,31 +714,7 @@ Frontend displays this as a beautiful animated certificate with confetti 🎉.
 - **Metadata**: Job ID, user ID, repo URL, timestamp
 - **Tags**: Custom tags (grading, judge_intervention, conflict_resolution)
 
-**Trace Hierarchy** (Parent-Child Relationships):
 
-A single analysis creates this trace tree:
-
-Analysis Job #12345 (root trace)
- ├─ Validator Agent (0.3s, no LLM)
- ├─ Scanner Agent (45s, no LLM)
- ├─ Grader Agent (12s, Llama 3.3 70B)
- │   ├─ Tool: get_level_criteria(3) (0.1s)
- │   ├─ Tool: read_selected_files(['auth.ts']) (0.2s)
- │   └─ Tool: validate_level_assignment(4, [...]) (0.1s)
- ├─ Judge Agent (8s, Gemini 3 Flash) ← Only if conflict
- ├─ Auditor Agent (2s, no LLM)
- └─ Mentor Agent (15s, Gemini 3 Flash)
-
-**Total**: ~82 seconds end-to-end
-
-**Why This Hierarchy Matters**:
-- **Debugging**: If analysis fails, we can pinpoint exactly which agent failed and why
-- **Cost Attribution**: We can see that Grader costs $0.0035, Mentor costs $0.0015
-- **Performance**: We identified Scanner as bottleneck (45s) and optimized to 22s via parallelization
-
-**Viewing Traces**: Every certificate has a "View Immutable Trace" button that opens Opik dashboard showing the complete audit trail.
-
----
 
 ### Opik Feature 2: Prompt Library & Version Control
 
@@ -765,30 +741,6 @@ Analysis Job #12345 (root trace)
    - Links prompt to trace (creates audit trail)
    - If Opik unavailable: Falls back to hardcoded version
 
-4. **Mustache Templating**: Prompts use variables:
-   - Template: "Analyze this {{language}} code with {{sloc}} lines..."
-   - Runtime: Replace {{language}} with "Python", {{sloc}} with "5000"
-
-**Why This Is Powerful**:
-
-**A/B Testing**: We can split traffic 50/50 between two prompt versions:
-- 50% of users get v2
-- 50% get v3
-- After 1000 analyses, compare thumbs-up rates
-- Deploy winner to 100%
-
-**Instant Rollback**: If v3 performs worse:
-- Click "Set Active Version" → v2
-- No code deployment needed
-- All new analyses immediately use v2
-
-**Audit Trail**: For every analysis, we can answer:
-- Which prompt version was used?
-- Who wrote that prompt?
-- When was it last updated?
-
-This is critical for compliance and debugging.
-
 ---
 
 ### Opik Feature 3: Online Evaluations (Auto-Quality Checks)
@@ -805,7 +757,7 @@ After every Grader assessment, Opik automatically runs:
 - Input: Code samples + Grader assessment
 - Output: Score 0.0-1.0 (0 = complete hallucination, 1 = perfect match)
 
-If hallucination score < 0.80: Alert fired to Slack.
+If hallucination score < 0.80: Alert fired.
 
 **2. Relevance Check**
 
@@ -928,60 +880,9 @@ Starting prompt (v2): 75% accuracy
 - Variation 3 (chain-of-thought): 82% ← **Best**
 - Variation 4 (few-shot): 77%
 - ...
-
-**Winner**: Variation 3 (chain-of-thought)
-
-Deployed as v3, now production default.
-
-**Cost**: 10 trials × 100 examples = 1,000 LLM calls = ~$10
-
-**ROI**: 7% accuracy improvement reduces Judge interventions by 40%, saving $25/month in Gemini costs. Pays for itself in 2 weeks.
-
-**Frequency**: We run optimization quarterly (every 3 months) as dataset grows.
-
 ---
 
-### Opik Feature 6: Cost Tracking & Analytics
-
-**Every Analysis Has a Price Tag**. Opik tracks:
-
-**Per-Model Costs**:
-- Llama 3.3: $0.59/million tokens
-- Gemini 3 Flash: $0.075/million tokens
-- GPT-4o-mini (evaluations): $0 (free tier)
-
-**Per-Agent Costs** (Average):
-- Grader: $0.0035 (6,000 tokens × $0.59/million)
-- Judge: $0.0008 (10,000 tokens × $0.075/million, only 17% of analyses)
-- Mentor: $0.0015 (20,000 tokens × $0.075/million)
-- **Total**: ~$0.005 per analysis
-
-**Monthly Projections**:
-- 500 analyses/month × $0.005 = **$2.50/month LLM costs**
-- Online evaluations (free tier): $0
-- Opik tracing: $0.01/trace × 3,500 traces = $35
-- **Total infrastructure**: $37.50/month
-
-Compare to GPT-4 alternative:
-- 500 analyses × $0.018/analysis = $90/month
-- **Savings**: $52.50/month (58% cheaper)
-
-**Dashboard Visualizations**:
-
-Opik shows:
-- Cost per day (line chart)
-- Cost per model (pie chart)
-- Cost per agent (bar chart)
-- Token usage trends (area chart)
-- Most expensive traces (table)
-
-**Alerting**:
-- If daily cost > $5: Email alert
-- If single trace > $0.50: Investigate (likely infinite loop)
-
----
-
-### Opik Feature 7: A/B Testing & Experimentation
+### Opik Feature 6: A/B Testing & Experimentation
 
 **Question**: "Should we use Llama 3.3 or Claude 3.5 for Grader?"
 
@@ -1008,12 +909,6 @@ Metrics to track:
 | Hallucination | 0.92 | 0.94 | Claude |
 | Latency | 12s | 18s | Llama |
 | Cost | $0.0035 | $0.015 | Llama |
-
-**Decision**: Claude 3.5 has +5% accuracy but 4× higher cost and 50% slower. 
-
-**Verdict**: Stick with Llama 3.3 (cost/speed matter more than marginal accuracy gain).
-
-**Implementation**: Toggle a feature flag in Opik, no code deploy needed.
 
 ---
 
@@ -1082,6 +977,8 @@ SFIA defines **7 levels of responsibility** across 100+ technical skills. We foc
 - **Multiplier**: **1.7×**
 
 ### Why SFIA?
+
+-- We are not actually using SFIA we are Inspired by the framework
 
 **Industry Recognition**: SFIA is used by:
 - UK Government (mandatory for IT procurement)
@@ -1345,26 +1242,7 @@ If validation fails: Return error message, don't crash, log suspicious activity.
 
 ---
 
-## 🚀 Production Deployment
 
-### Infrastructure
-
-**Backend**:
-- Platform: Render (Docker containers)
-- Scaling: Auto-scale 1-10 instances based on CPU
-- Health checks: `/health` endpoint (checks database, Opik, LLM connectivity)
-- Deployment: GitHub Actions CI/CD (test → build → deploy)
-
-**Frontend**:
-- Platform: Vercel (edge CDN)
-- Build: Vite production mode (minified, tree-shaken)
-- Cache: Static assets cached 1 year (immutable)
-- Deployment: Automatic on push to main branch
-
-**Database**:
-- Provider: Neon Serverless Postgres
-- Backup: Automated daily snapshots (7-day retention)
-- Failover: Multi-AZ replication
 
 ### Environment Variables
 
@@ -1492,37 +1370,12 @@ If validation fails: Return error message, don't crash, log suspicious activity.
 
 ---
 
-## 🤝 Contributing
-
-We welcome contributions! SkillProtocol is open-source (MIT license).
-
-**How to Get Started**:
-1. Fork the repository
-2. Set up local environment (see CONTRIBUTING.md)
-3. Find an issue tagged "good first issue"
-4. Submit a pull request
-
-**Community**:
-- Discord: discord.gg/skillprotocol
-- GitHub Discussions: github.com/skillprotocol/skillprotocol/discussions
-- Twitter: @skillprotocol
-
----
 
 ## 📜 License
 
 MIT License - see LICENSE file for details.
 
 ---
-
-## 🙏 Acknowledgments
-
-**Technologies**:
-- Opik by Comet.ml (LLM observability)
-- LangGraph by LangChain (agent orchestration)
-- Tree-sitter (AST parsing)
-- Groq (LPU inference for Llama)
-- OpenRouter (LLM gateway)
 
 **Inspiration**:
 - SFIA Foundation (skill framework)
