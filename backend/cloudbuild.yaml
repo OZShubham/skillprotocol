@@ -1,13 +1,17 @@
 steps:
   # ==============================================================================
-  # Step 1: Build
+  # Step 1: Build the Container Image
   # ==============================================================================
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
+    dir: 'backend'  # <--- THIS IS THE FIX. It runs this step inside the 'backend' folder.
     args:
       - '-c'
       - |
+        # We try to pull the image. "|| true" prevents crashing if it doesn't exist yet.
         docker pull gcr.io/$PROJECT_ID/skillprotocol-backend:latest || true
+        
+        # Now we build. Since we are in 'dir: backend', the "." refers to the backend folder.
         docker build \
           -t gcr.io/$PROJECT_ID/skillprotocol-backend:latest \
           -t gcr.io/$PROJECT_ID/skillprotocol-backend:$COMMIT_SHA \
@@ -15,7 +19,7 @@ steps:
           .
 
   # ==============================================================================
-  # Step 2: Push
+  # Step 2: Push the Image
   # ==============================================================================
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/skillprotocol-backend:latest']
@@ -24,14 +28,14 @@ steps:
     args: ['push', 'gcr.io/$PROJECT_ID/skillprotocol-backend:$COMMIT_SHA']
 
   # ==============================================================================
-  # Step 3: Deploy
+  # Step 3: Deploy to Cloud Run
   # ==============================================================================
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'skillprotocol-backend'  # <--- MUST MATCH YOUR RUNNING SERVICE NAME
+      - 'skillprotocol-backend'
       - '--image'
       - 'gcr.io/$PROJECT_ID/skillprotocol-backend:$COMMIT_SHA'
       - '--region'
@@ -40,6 +44,9 @@ steps:
       - 'managed'
       - '--allow-unauthenticated'
 
+# ==============================================================================
+# Options
+# ==============================================================================
 images:
   - 'gcr.io/$PROJECT_ID/skillprotocol-backend:latest'
   - 'gcr.io/$PROJECT_ID/skillprotocol-backend:$COMMIT_SHA'
