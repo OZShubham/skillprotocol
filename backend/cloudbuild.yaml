@@ -1,0 +1,62 @@
+steps:
+  # ==============================================================================
+  # Step 1: Build the Container Image
+  # ==============================================================================
+  # This uses your Dockerfile to build the image.
+  # We try to pull the "latest" image first to use as a cache layer (speeds up build).
+  # ==============================================================================
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker pull gcr.io/$PROJECT_ID/skillprotocol-backend:latest || true
+        docker build \
+          -t gcr.io/$PROJECT_ID/skillprotocol-backend:latest \
+          -t gcr.io/$PROJECT_ID/skillprotocol-backend:$COMMIT_SHA \
+          --cache-from gcr.io/$PROJECT_ID/skillprotocol-backend:latest \
+          .
+
+  # ==============================================================================
+  # Step 2: Push the Image to Google Container Registry
+  # ==============================================================================
+  # We push both the specific commit version (for history) and the 'latest' tag.
+  # ==============================================================================
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/skillprotocol-backend:latest']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/skillprotocol-backend:$COMMIT_SHA']
+
+  # ==============================================================================
+  # Step 3: Deploy to Cloud Run
+  # ==============================================================================
+  # This updates your EXISTING service.
+  # IMPORTANT: It preserves all your existing Environment Variables (DB URL, API Keys).
+  # ==============================================================================
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'skillprotocol-backend'  # Must match your current service name exactly
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/skillprotocol-backend:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+
+# ==============================================================================
+# Timeout & Options
+# ==============================================================================
+timeout: '1200s' # 20 minutes
+
+
+images:
+  - 'gcr.io/$PROJECT_ID/skillprotocol-backend:latest'
+  - 'gcr.io/$PROJECT_ID/skillprotocol-backend:$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
