@@ -4,8 +4,7 @@
 
 <div align="center">
 
-[🌐 Live Demo](https://skillprotocol.com) • [📊 View Opik Traces](https://cloud.comet.ml/skillprotocol) • [📚 Docs](https://docs.skillprotocol.com)
-
+[🌐 Live Demo](https://skillprotocol.vercel.app/) • 
 [![GitHub Stars](https://img.shields.io/github/stars/skillprotocol/skillprotocol?style=social)](https://github.com/skillprotocol/skillprotocol)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Opik Integrated](https://img.shields.io/badge/Opik-Integrated-blue)](https://www.comet.com/opik)
@@ -1386,6 +1385,6 @@ MIT License - see LICENSE file for details.
 
 <div align="center">
 
-• [🌐 Try Live Demo](https://skillprotocol.com) •
+• [🌐 Try Live Demo](https://skillprotocol.vercel.app/)) •
 
 </div>
