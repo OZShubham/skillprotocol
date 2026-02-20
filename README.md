@@ -5,9 +5,7 @@
 <div align="center">
 
 [🌐 Live Demo](https://skillprotocol.vercel.app/) • 
-[![GitHub Stars](https://img.shields.io/github/stars/skillprotocol/skillprotocol?style=social)](https://github.com/skillprotocol/skillprotocol)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Opik Integrated](https://img.shields.io/badge/Opik-Integrated-blue)](https://www.comet.com/opik)
+
 
 </div>
 
